@@ -194,21 +194,3 @@ func TestGlossModeReconcilesFlags(t *testing.T) {
 		}
 	}
 }
-
-func TestLayerSummaryShowsPrintOrder(t *testing.T) {
-	cases := []struct {
-		white pdfgen.WhiteMode
-		gloss pdfgen.GlossMode
-		want  string
-	}{
-		{pdfgen.WhiteNone, pdfgen.GlossNone, "CMYK"},
-		{pdfgen.WhiteAuto, pdfgen.GlossNone, "RDG_WHITE → CMYK"},
-		{pdfgen.WhiteNone, pdfgen.GlossFull, "CMYK → RDG_GLOSS"},
-		{pdfgen.WhiteFull, pdfgen.GlossMask, "RDG_WHITE → CMYK → RDG_GLOSS"},
-	}
-	for _, tc := range cases {
-		if got := layerSummary(tc.white, tc.gloss); got != tc.want {
-			t.Errorf("layerSummary(%v, %v) = %q, want %q", tc.white, tc.gloss, got, tc.want)
-		}
-	}
-}

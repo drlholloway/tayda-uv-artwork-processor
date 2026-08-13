@@ -17,6 +17,7 @@ import (
 	"github.com/laneholloway/tayda-uv-artwork-processor/internal/artwork"
 	"github.com/laneholloway/tayda-uv-artwork-processor/internal/enclosure"
 	"github.com/laneholloway/tayda-uv-artwork-processor/internal/pdfgen"
+	"github.com/laneholloway/tayda-uv-artwork-processor/internal/tui"
 )
 
 // usageError is a mistake in how the command was invoked, as opposed to a
@@ -28,12 +29,29 @@ type usageError struct {
 
 func (e *usageError) Error() string { return e.msg }
 
+// isTerminal reports whether f is an interactive terminal rather than a pipe
+// or a file.
+func isTerminal(f *os.File) bool {
+	info, err := f.Stat()
+	return err == nil && info.Mode()&os.ModeCharDevice != 0
+}
+
 // errParsed stands in for a flag-parsing failure the flag package has already
 // reported, so main exits without printing a second message.
 var errParsed = errors.New("flag parse error")
 
 func main() {
 	if len(os.Args) < 2 {
+		// Bare invocation opens the interactive interface, but only when
+		// there is a terminal to draw on. Piped or redirected, printing the
+		// usage is far more useful than failing to start a TUI.
+		if isTerminal(os.Stdin) && isTerminal(os.Stdout) {
+			if err := tui.Run(); err != nil {
+				fmt.Fprintln(os.Stderr, "error:", err)
+				os.Exit(1)
+			}
+			return
+		}
 		printUsage(os.Stderr)
 		os.Exit(2)
 	}
@@ -303,7 +321,7 @@ func cmdConvert(args []string) error {
 		return err
 	}
 
-	fmt.Printf("\nwrote %s — %g × %g mm, layers: %s\n", out, size.WidthMM, size.HeightMM, layerSummary(white, gloss))
+	fmt.Printf("\nwrote %s — %g × %g mm, layers: %s\n", out, size.WidthMM, size.HeightMM, pdfgen.LayerSummary(white, gloss))
 	printGlossNotes(gloss, mask)
 	fmt.Println("check it with Tayda's PDF Analyzer before ordering.")
 	return nil
@@ -348,19 +366,6 @@ func glossMode(name, maskPath string) (pdfgen.GlossMode, error) {
 		return 0, fmt.Errorf("-gloss mask needs -gloss-mask <image>")
 	}
 	return mode, nil
-}
-
-func layerSummary(w pdfgen.WhiteMode, g pdfgen.GlossMode) string {
-	layers := make([]string, 0, 3)
-	if w != pdfgen.WhiteNone {
-		layers = append(layers, pdfgen.SpotWhite)
-	}
-	layers = append(layers, pdfgen.LayerCMYK)
-	if g != pdfgen.GlossNone {
-		layers = append(layers, pdfgen.SpotGloss)
-	}
-	// The arrows are the print order, which is the thing most worth seeing.
-	return strings.Join(layers, " → ")
 }
 
 // printGlossNotes passes on the guide's warnings about varnish, which are

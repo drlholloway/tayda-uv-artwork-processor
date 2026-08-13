@@ -53,16 +53,19 @@ cmd/tayda-uv/        CLI (stdlib flag, subcommands)
 internal/enclosure/  the artboard dimension table — ground truth
 internal/artwork/    decode + validate a source image against a side
 internal/pdfgen/     hand-rolled PDF emitter targeting the Tayda spec
+internal/tui/        Bubble Tea interactive front end
 ```
 
 Data flows one way: `enclosure` supplies a `Size` in millimetres → `artwork`
 checks a decoded image against it → `pdfgen` renders the image onto an
 artboard of exactly that size. `enclosure` depends on nothing.
 
-**No third-party dependencies, deliberately.** The README's stated motivation
-is that the existing web tool may vanish; a build that only needs the Go
-toolchain is the answer to that. Do not add a module dependency without a
-reason that outweighs it.
+**Dependencies are limited to the TUI.** Bubble Tea, Bubbles and Lipgloss are
+used by `internal/tui` and nothing else; `enclosure`, `artwork` and `pdfgen`
+are stdlib-only and must stay that way. The README's motivation is that the
+existing web tool may vanish, so the parts that know how to produce a
+printable file should depend on nothing but the Go toolchain. Adding a module
+under those three packages needs a reason that outweighs this.
 
 ### `cmd/tayda-uv`
 
@@ -81,6 +84,34 @@ Conventions worth keeping:
   A script can tell "no such enclosure" from "this artwork is too low-res".
   Usage mistakes are returned as `*usageError`, which also prints a pointer to
   the relevant `tayda-uv help <command>`.
+
+### `internal/tui`
+
+Bubble Tea. Four screens: choose an enclosure → a table of its six sides →
+a file picker → results. `model.go` holds state and transitions, `view.go`
+holds rendering; nothing about printing lives here, it only drives the other
+packages.
+
+Rules that matter:
+
+- **The TUI must never be able to do something the CLI cannot.** Automating
+  this tool is why it exists, per the README. A feature added here needs a
+  flag too.
+- **Changing enclosure discards attached artwork**, because every side is a
+  different size on a different enclosure. Re-picking the same one keeps it.
+- **A gloss mask is per-side** (`m` on a row); the global gloss setting cycles
+  none → full → artwork and never lands on mask.
+- **There is no `-force` equivalent.** The TUI refuses to convert a side whose
+  artwork has problems; overriding stays a deliberate command-line act.
+
+Testing: drive `Update` with synthetic `tea.KeyMsg` values and assert on the
+returned model — see `model_test.go`. `view_test.go` renders each screen and
+`t.Log`s it, so `go test -v ./internal/tui` shows the actual layout. Do look
+at it; a screen can pass every assertion and still be laid out wrong.
+
+Running the TUI headlessly under `script`/a bare pty does not work: Bubble Tea
+queries the terminal for its background colour and nothing answers, so it
+hangs. Verify interactive behaviour by running it in a real terminal.
 
 ### `internal/enclosure`
 
@@ -165,9 +196,6 @@ Then look at the PNG: correct orientation, no vertical flip, colours intact.
 
 ## Not built yet
 
-- **TUI.** The README wants a TUI over this same core. The CLI must stay
-  complete on its own — the README's point is that it be automatable by an
-  agent, so no TUI-only capability.
 - **`RDG_WHITE_2`** (advanced White → CMYK → White mode). The guide lists it as
   not yet available.
 - **"Print white layer twice"** add-on. Not represented in the file.

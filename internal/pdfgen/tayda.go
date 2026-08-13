@@ -128,6 +128,20 @@ func ParseGlossMode(s string) (GlossMode, error) {
 	return 0, fmt.Errorf("unknown gloss mode %q (want none, full, artwork or mask)", s)
 }
 
+// LayerSummary names the layers a job will produce, in the order the printer
+// lays them down. Both front ends show it after a conversion.
+func LayerSummary(w WhiteMode, g GlossMode) string {
+	layers := make([]string, 0, 3)
+	if w != WhiteNone {
+		layers = append(layers, SpotWhite)
+	}
+	layers = append(layers, LayerCMYK)
+	if g != GlossNone {
+		layers = append(layers, SpotGloss)
+	}
+	return strings.Join(layers, " → ")
+}
+
 // Job is one artboard to render.
 type Job struct {
 	Image    image.Image

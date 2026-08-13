@@ -9,20 +9,47 @@ There exists a tool already that handles the front face creation of the needed p
 
 The tool verifies the sizes of the image is correct for the enclosure and ensures that the output is correct for tayda.
 
-## Status
-
-The command line side works: enclosure/side lookup, artwork validation, and
-PDF generation. The TUI is not built yet.
-
 ## Install
 
 ```sh
 go build -o tayda-uv ./cmd/tayda-uv
 ```
 
-No third-party dependencies — the Go toolchain is all you need.
+## Interactive use
 
-## Usage
+Run it with no arguments:
+
+```sh
+tayda-uv
+```
+
+Choose an enclosure, then attach artwork to each side you want printed and
+convert them all in one pass. Every side is validated as you attach it, so
+problems show up before you spend anything.
+
+```
+tayda-uv · 1590B
+
+  SIDE  ARTBOARD        ARTWORK               GLOSS    STATUS
+▸ A     56 × 108.5 mm   face.png              —        ✓ 305 DPI
+  B     52 × 24 mm      —                     —        · not set
+  C     24 × 103 mm     side-left.png         —        ✗ 212 DPI
+  D     52 × 24 mm      —                     —        · not set
+  E     24 × 103 mm     —                     —        · not set
+  Lid   56 × 108.5 mm   back.png              mask     ✓ 305 DPI
+
+  white auto  ·  gloss none  ·  out ~/pedals/fuzz
+
+  ↑↓ move · enter artwork · m gloss mask · x clear · w white · g gloss
+  c convert · e enclosure · q quit
+```
+
+Files are written to the current directory as `<enclosure>-<side>.pdf`.
+
+## Command line
+
+Everything the interface does is also a command, so builds can be scripted or
+driven by an agent.
 
 ```sh
 # every command explains itself
