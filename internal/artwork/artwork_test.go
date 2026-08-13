@@ -74,6 +74,30 @@ func TestTinyAspectDriftIsOnlyAWarning(t *testing.T) {
 	}
 }
 
+// A gloss mask decides where varnish lands, so its shape matters as much as
+// the artwork's — but a slightly soft varnish edge is not worth blocking a
+// conversion over.
+func TestMaskResolutionIsAdvisoryButShapeIsNot(t *testing.T) {
+	lowRes := image.NewRGBA(image.Rect(0, 0, 331, 641)) // right shape, half DPI
+	r := CheckMask(lowRes, enclosure.SideA, side1590BA)
+	if !r.OK() {
+		t.Errorf("low-resolution mask should not block: %v", r.Problems)
+	}
+	if len(r.Warnings) == 0 {
+		t.Error("low-resolution mask should warn")
+	}
+
+	wrongShape := image.NewRGBA(image.Rect(0, 0, 1300, 1300))
+	if CheckMask(wrongShape, enclosure.SideA, side1590BA).OK() {
+		t.Error("a mask of the wrong shape puts varnish in the wrong place and should be rejected")
+	}
+
+	// Artwork itself keeps the hard resolution floor.
+	if Check(lowRes, enclosure.SideA, side1590BA).OK() {
+		t.Error("low-resolution artwork should still be rejected")
+	}
+}
+
 func TestZeroSizedImage(t *testing.T) {
 	r := checkPx(t, 0, 0, side1590BA)
 	if r.OK() {

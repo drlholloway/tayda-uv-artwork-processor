@@ -57,6 +57,36 @@ into the powder coat unless an `RDG_WHITE` undercoat goes down first.
 | `full` | You want the whole side backed in white. |
 | `none` | Printing on a white enclosure. |
 
+### Gloss / varnish (paid add-on)
+
+`RDG_GLOSS` adds a varnish coat over the print. It is off unless you ask for
+it. `-gloss` takes:
+
+| Mode | Effect |
+|---|---|
+| `none` (default) | No varnish layer. |
+| `full` | Varnish the whole side. |
+| `artwork` | Varnish wherever the artwork is opaque. |
+| `mask` | Varnish according to `-gloss-mask` — this is how you coat one element. |
+
+A mask is read as coverage: if it has transparency, its alpha is used, so a
+shape on a transparent background works directly. Otherwise brightness is
+used — **white coats, black leaves bare**. The mask does not have to match the
+artwork's pixel dimensions; it is scaled to the artboard independently.
+
+```sh
+# varnish only the logo
+tayda-uv convert -e 1590B -s A -gloss-mask logo-only.png -o face.pdf face.png
+```
+
+Two things the guide is firm about, which the tool repeats back to you:
+
+- Large areas of **gloss varnish** attract fingerprints and add days to
+  production. Gloss matte handles large areas better. The tool prints the
+  coverage percentage and warns above 50%.
+- Whether the finish is gloss varnish or gloss matte is **not** in the PDF —
+  you choose it in the Tayda Box Tool when saving the template.
+
 ### Validation
 
 `convert` validates before writing and refuses to produce a file that will not

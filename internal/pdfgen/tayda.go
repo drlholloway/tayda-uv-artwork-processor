@@ -7,8 +7,10 @@
 //   - Colour is DeviceCMYK. No RGB reaches the file.
 //   - Artwork lives in an optional content group (layer) named CMYK.
 //   - White ink is a Separation colour named exactly RDG_WHITE, on a layer of
-//     the same name, painted before the CMYK artwork so it acts as the
-//     undercoat the default White → CMYK → Gloss print order expects.
+//     the same name, painted before the CMYK artwork.
+//   - Varnish is a Separation colour named exactly RDG_GLOSS, on a layer of
+//     the same name, painted after the CMYK artwork.
+//   - That ordering is the default White → CMYK → Gloss print mode.
 //   - Nothing is drawn outside the page box.
 package pdfgen
 
@@ -25,7 +27,7 @@ import (
 // is explicit that "Rdg_White" or "rdg_white" will not work.
 const (
 	SpotWhite = "RDG_WHITE"
-	SpotGloss = "RDG_GLOSS" // paid add-on; not generated yet, see README
+	SpotGloss = "RDG_GLOSS"
 )
 
 // LayerCMYK is the layer name the guide asks for around colour artwork.
@@ -78,12 +80,82 @@ func ParseWhiteMode(s string) (WhiteMode, error) {
 	return 0, fmt.Errorf("unknown white mode %q (want none, auto or full)", s)
 }
 
+// GlossMode selects how the RDG_GLOSS varnish layer is generated.
+//
+// Gloss is a paid add-on, so it is off unless asked for. Which finish the
+// varnish actually is — gloss varnish or gloss matte — is not recorded in the
+// PDF; it is chosen in the Tayda Box Tool when the template is saved.
+type GlossMode int
+
+const (
+	// GlossNone emits no varnish layer.
+	GlossNone GlossMode = iota
+	// GlossFull varnishes the whole artboard.
+	GlossFull
+	// GlossArtwork varnishes wherever the artwork is opaque.
+	GlossArtwork
+	// GlossMask varnishes according to a separate mask image, which is how
+	// you coat only part of a design.
+	GlossMask
+)
+
+func (m GlossMode) String() string {
+	switch m {
+	case GlossNone:
+		return "none"
+	case GlossFull:
+		return "full"
+	case GlossArtwork:
+		return "artwork"
+	case GlossMask:
+		return "mask"
+	}
+	return "unknown"
+}
+
+// ParseGlossMode maps a command-line value to a GlossMode.
+func ParseGlossMode(s string) (GlossMode, error) {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "none", "":
+		return GlossNone, nil
+	case "full":
+		return GlossFull, nil
+	case "artwork":
+		return GlossArtwork, nil
+	case "mask":
+		return GlossMask, nil
+	}
+	return 0, fmt.Errorf("unknown gloss mode %q (want none, full, artwork or mask)", s)
+}
+
 // Job is one artboard to render.
 type Job struct {
 	Image    image.Image
 	WidthMM  float64
 	HeightMM float64
 	White    WhiteMode
+	Gloss    GlossMode
+	// GlossMask supplies varnish coverage when Gloss is GlossMask. Opaque or
+	// white areas are coated; transparent or black areas are left bare.
+	GlossMask image.Image
+}
+
+// coating is an ink layer painted through a Separation colour space: white
+// under the artwork, varnish over it. Both are the same shape of object, so
+// they share one code path.
+type coating struct {
+	name      string     // spot colour and layer name, e.g. RDG_WHITE
+	alternate [4]float64 // preview-only CMYK values from the guide
+
+	// coverage holds one 8-bit tint per pixel, or nil to flood the whole
+	// artboard with a rectangle — cheaper, and identical in result when
+	// coverage would be uniformly full.
+	coverage []byte
+	w, h     int
+
+	// Assigned during Build.
+	ocgObj, csObj, imgObj, smaskObj int
+	ocName, csName, imName          string
 }
 
 const mmPerInch = 25.4
@@ -105,6 +177,21 @@ func Build(j Job, out io.Writer) error {
 
 	cmyk, alpha, transparent := encodeCMYK(j.Image)
 
+	under := whiteCoating(j.White, alpha, transparent, b.Dx(), b.Dy())
+	over, err := glossCoating(j.Gloss, j.GlossMask, alpha, transparent, b.Dx(), b.Dy())
+	if err != nil {
+		return err
+	}
+
+	// Print order: white, then artwork, then varnish.
+	var coats []*coating
+	if under != nil {
+		coats = append(coats, under)
+	}
+	if over != nil {
+		coats = append(coats, over)
+	}
+
 	w := newObjWriter()
 	catalog := w.reserve()
 	pages := w.reserve()
@@ -116,65 +203,67 @@ func Build(j Job, out io.Writer) error {
 	if transparent {
 		smask = w.reserve()
 	}
-
 	ocgCMYK := w.reserve()
 
-	// Decide the shape of the white layer before reserving its objects.
-	whiteAsImage := j.White == WhiteAuto && transparent
-	whiteAsRect := j.White == WhiteFull || (j.White == WhiteAuto && !transparent)
-
-	var ocgWhite, sepWhite, imgWhite int
-	if whiteAsImage || whiteAsRect {
-		ocgWhite = w.reserve()
-		sepWhite = w.reserve()
-		if whiteAsImage {
-			imgWhite = w.reserve()
+	for i, c := range coats {
+		c.ocgObj = w.reserve()
+		c.csObj = w.reserve()
+		if c.coverage != nil {
+			c.imgObj = w.reserve()
+			c.smaskObj = w.reserve()
 		}
+		c.ocName = fmt.Sprintf("OC%d", i)
+		c.csName = fmt.Sprintf("Cs%d", i)
+		c.imName = fmt.Sprintf("ImC%d", i)
 	}
 
 	pageW := mmToPt(j.WidthMM)
 	pageH := mmToPt(j.HeightMM)
 
 	// --- content stream -------------------------------------------------
-	// White is painted first: the default print mode lays white down, then
-	// CMYK on top of it.
 	var cs strings.Builder
-	if whiteAsRect {
-		fmt.Fprintf(&cs, "/OC /OCw BDC\nq\n/CsW cs\n1 scn\n0 0 %s %s re\nf\nQ\nEMC\n",
-			ftoa(pageW), ftoa(pageH))
-	} else if whiteAsImage {
-		fmt.Fprintf(&cs, "/OC /OCw BDC\nq\n%s 0 0 %s 0 0 cm\n/ImW Do\nQ\nEMC\n",
-			ftoa(pageW), ftoa(pageH))
+	if under != nil {
+		writeCoating(&cs, under, pageW, pageH)
 	}
 	fmt.Fprintf(&cs, "/OC /OCc BDC\nq\n%s 0 0 %s 0 0 cm\n/Im0 Do\nQ\nEMC\n",
 		ftoa(pageW), ftoa(pageH))
+	if over != nil {
+		writeCoating(&cs, over, pageW, pageH)
+	}
 
 	// --- resources ------------------------------------------------------
 	xobjects := fmt.Sprintf("/Im0 %d 0 R", imgCMYK)
-	if whiteAsImage {
-		xobjects += fmt.Sprintf(" /ImW %d 0 R", imgWhite)
-	}
 	properties := fmt.Sprintf("/OCc %d 0 R", ocgCMYK)
-	if ocgWhite != 0 {
-		properties += fmt.Sprintf(" /OCw %d 0 R", ocgWhite)
+	var colorspaces string
+	for _, c := range coats {
+		properties += fmt.Sprintf(" /%s %d 0 R", c.ocName, c.ocgObj)
+		colorspaces += fmt.Sprintf("/%s %d 0 R", c.csName, c.csObj)
+		if c.imgObj != 0 {
+			xobjects += fmt.Sprintf(" /%s %d 0 R", c.imName, c.imgObj)
+		}
 	}
 	resources := fmt.Sprintf("<</XObject<<%s>>/Properties<<%s>>", xobjects, properties)
-	if sepWhite != 0 {
-		resources += fmt.Sprintf("/ColorSpace<</CsW %d 0 R>>", sepWhite)
+	if colorspaces != "" {
+		resources += "/ColorSpace<<" + colorspaces + ">>"
 	}
 	resources += ">>"
 
 	// --- objects --------------------------------------------------------
-	ocgs := fmt.Sprintf("%d 0 R", ocgCMYK)
-	order := ocgs
-	if ocgWhite != 0 {
-		ocgs = fmt.Sprintf("%d 0 R %d 0 R", ocgWhite, ocgCMYK)
-		// Listed in print order: white under, CMYK over.
-		order = ocgs
+	// Layers are listed in print order so a reader's layer panel matches the
+	// order the inks actually go down.
+	var refs []string
+	if under != nil {
+		refs = append(refs, fmt.Sprintf("%d 0 R", under.ocgObj))
 	}
+	refs = append(refs, fmt.Sprintf("%d 0 R", ocgCMYK))
+	if over != nil {
+		refs = append(refs, fmt.Sprintf("%d 0 R", over.ocgObj))
+	}
+	ocgList := strings.Join(refs, " ")
+
 	w.put(catalog, fmt.Sprintf(
 		"<</Type/Catalog/Pages %d 0 R/OCProperties<</OCGs[%s]/D<</Order[%s]/ON[%s]>>>>>>",
-		pages, ocgs, order, ocgs))
+		pages, ocgList, ocgList, ocgList))
 
 	w.put(pages, fmt.Sprintf("<</Type/Pages/Kids[%d 0 R]/Count 1>>", page))
 
@@ -200,19 +289,135 @@ func Build(j Job, out io.Writer) error {
 
 	w.put(ocgCMYK, fmt.Sprintf("<</Type/OCG/Name(%s)>>", LayerCMYK))
 
-	if ocgWhite != 0 {
-		w.put(ocgWhite, fmt.Sprintf("<</Type/OCG/Name(%s)>>", SpotWhite))
-		w.put(sepWhite, separationColorSpace(SpotWhite, whiteAlternate))
-	}
-	if whiteAsImage {
-		// One component per pixel in the Separation space: the sample value
-		// is the ink tint, so the artwork's own alpha becomes white coverage.
-		w.putStream(imgWhite, fmt.Sprintf(
-			"/Type/XObject/Subtype/Image/Width %d/Height %d/ColorSpace %d 0 R/BitsPerComponent 8",
-			b.Dx(), b.Dy(), sepWhite), alpha)
+	for _, c := range coats {
+		w.put(c.ocgObj, fmt.Sprintf("<</Type/OCG/Name(%s)>>", c.name))
+		w.put(c.csObj, separationColorSpace(c.name, c.alternate))
+		if c.imgObj != 0 {
+			// One component per pixel in the Separation space: the sample
+			// value is the ink tint, so the coverage map drives the ink.
+			//
+			// The same map is also the soft mask. Without it, a tint of zero
+			// paints the alternate space's zero — which is white, not
+			// nothing — and the layer covers the artwork beneath it with an
+			// opaque white slab. Alpha must track tint so that "no ink"
+			// means no ink.
+			w.putStream(c.imgObj, fmt.Sprintf(
+				"/Type/XObject/Subtype/Image/Width %d/Height %d/ColorSpace %d 0 R/BitsPerComponent 8/SMask %d 0 R",
+				c.w, c.h, c.csObj, c.smaskObj), c.coverage)
+			w.putStream(c.smaskObj, fmt.Sprintf(
+				"/Type/XObject/Subtype/Image/Width %d/Height %d/ColorSpace/DeviceGray/BitsPerComponent 8",
+				c.w, c.h), c.coverage)
+		}
 	}
 
 	return w.finish(catalog, out)
+}
+
+// writeCoating paints one ink layer across the page, either as a flood-filled
+// rectangle or as a coverage image.
+func writeCoating(sb *strings.Builder, c *coating, pageW, pageH float64) {
+	fmt.Fprintf(sb, "/OC /%s BDC\nq\n", c.ocName)
+	if c.coverage == nil {
+		fmt.Fprintf(sb, "/%s cs\n1 scn\n0 0 %s %s re\nf\n", c.csName, ftoa(pageW), ftoa(pageH))
+	} else {
+		fmt.Fprintf(sb, "%s 0 0 %s 0 0 cm\n/%s Do\n", ftoa(pageW), ftoa(pageH), c.imName)
+	}
+	sb.WriteString("Q\nEMC\n")
+}
+
+func whiteCoating(mode WhiteMode, alpha []byte, transparent bool, w, h int) *coating {
+	c := &coating{name: SpotWhite, alternate: whiteAlternate, w: w, h: h}
+	switch mode {
+	case WhiteNone:
+		return nil
+	case WhiteFull:
+		return c // flood
+	case WhiteAuto:
+		if transparent {
+			c.coverage = alpha
+		}
+		return c
+	}
+	return nil
+}
+
+func glossCoating(mode GlossMode, mask image.Image, alpha []byte, transparent bool, w, h int) (*coating, error) {
+	c := &coating{name: SpotGloss, alternate: glossAlternate, w: w, h: h}
+	switch mode {
+	case GlossNone:
+		return nil, nil
+	case GlossFull:
+		return c, nil
+	case GlossArtwork:
+		if transparent {
+			c.coverage = alpha
+		}
+		return c, nil
+	case GlossMask:
+		if mask == nil {
+			return nil, fmt.Errorf("gloss mode is mask but no mask image was supplied")
+		}
+		b := mask.Bounds()
+		if b.Dx() == 0 || b.Dy() == 0 {
+			return nil, fmt.Errorf("gloss mask has zero width or height")
+		}
+		c.coverage, c.w, c.h = coverageFrom(mask)
+		return c, nil
+	}
+	return nil, fmt.Errorf("unknown gloss mode %v", mode)
+}
+
+// coverageFrom reads an image as a coverage map of 8-bit ink tints.
+//
+// If the image has any transparency its alpha channel is the coverage, so a
+// shape on a transparent background works as a mask directly. Otherwise
+// luminance is used, so a plain greyscale mask works too: white coats, black
+// leaves bare.
+func coverageFrom(img image.Image) (cov []byte, w, h int) {
+	b := img.Bounds()
+	w, h = b.Dx(), b.Dy()
+	alpha := make([]byte, 0, w*h)
+	luma := make([]byte, 0, w*h)
+	transparent := false
+
+	for y := b.Min.Y; y < b.Max.Y; y++ {
+		for x := b.Min.X; x < b.Max.X; x++ {
+			r, g, bl, a := img.At(x, y).RGBA()
+			if a > 0 && a < 0xffff {
+				r = r * 0xffff / a
+				g = g * 0xffff / a
+				bl = bl * 0xffff / a
+			}
+			av := uint8(a >> 8)
+			alpha = append(alpha, av)
+			if av != 0xff {
+				transparent = true
+			}
+			// Rec. 601 luma, which tracks perceived brightness closely
+			// enough for deciding where varnish lands.
+			luma = append(luma, uint8((299*(r>>8)+587*(g>>8)+114*(bl>>8))/1000))
+		}
+	}
+	if transparent {
+		return alpha, w, h
+	}
+	return luma, w, h
+}
+
+// CoverageFraction reports how much of a mask image would be coated, from 0
+// (nothing) to 1 (everything). The guide warns that large areas of gloss
+// varnish attract fingerprints and add days to production, so callers use
+// this to say so before an order goes out.
+func CoverageFraction(mask image.Image) float64 {
+	cov, w, h := coverageFrom(mask)
+	if w == 0 || h == 0 {
+		return 0
+	}
+	var total uint64
+	for _, v := range cov {
+		total += uint64(v)
+	}
+	return float64(total) / float64(len(cov)) / 255
 }
 
 // separationColorSpace builds a Separation colour space whose tint transform

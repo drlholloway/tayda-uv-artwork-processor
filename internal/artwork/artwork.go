@@ -72,6 +72,20 @@ func (r Report) OK() bool { return len(r.Problems) == 0 }
 // specified in millimetres and any pixel count that clears the DPI floor at
 // the right aspect ratio is fine.
 func Check(img image.Image, side enclosure.Side, target enclosure.Size) Report {
+	return check(img, side, target, false)
+}
+
+// CheckMask measures a gloss mask against the artboard for a side.
+//
+// The aspect rules are the same as for artwork — a mask of the wrong shape
+// puts varnish in the wrong place — but resolution is only advisory. A
+// slightly soft edge on a varnish coat is far less visible than a soft edge
+// in the artwork itself, so it should not block a conversion.
+func CheckMask(img image.Image, side enclosure.Side, target enclosure.Size) Report {
+	return check(img, side, target, true)
+}
+
+func check(img image.Image, side enclosure.Side, target enclosure.Size, dpiAdvisory bool) Report {
 	b := img.Bounds()
 	r := Report{
 		Side:   side,
@@ -89,10 +103,15 @@ func Check(img image.Image, side enclosure.Side, target enclosure.Size) Report {
 	r.DPIY = float64(r.PixelH) / (target.HeightMM / 25.4)
 
 	if lowest := math.Min(r.DPIX, r.DPIY); lowest < MinDPI {
-		r.Problems = append(r.Problems, fmt.Sprintf(
+		msg := fmt.Sprintf(
 			"resolution is %.0f DPI at %s, below the %.0f DPI minimum: needs at least %d × %d px",
 			lowest, target, MinDPI,
-			pixelsFor(target.WidthMM, MinDPI), pixelsFor(target.HeightMM, MinDPI)))
+			pixelsFor(target.WidthMM, MinDPI), pixelsFor(target.HeightMM, MinDPI))
+		if dpiAdvisory {
+			r.Warnings = append(r.Warnings, msg)
+		} else {
+			r.Problems = append(r.Problems, msg)
+		}
 	}
 
 	imgAspect := float64(r.PixelW) / float64(r.PixelH)

@@ -98,18 +98,39 @@ Spec rules encoded here, each load-bearing:
   asserts `/DeviceRGB` is absent.
 - Spot names are `RDG_WHITE` / `RDG_GLOSS`, case-sensitive. The guide is
   explicit that `Rdg_White` will not work.
-- White is painted **before** CMYK in the content stream, matching the default
-  White → CMYK → Gloss print order.
+- White is painted **before** CMYK and gloss **after**, matching the default
+  White → CMYK → Gloss print order. The guide's checklist calls this order
+  "VERY IMPORTANT"; `TestPrintOrderIsWhiteThenCMYKThenGloss` decompresses the
+  finished content stream and reads the order back out rather than trusting
+  the builder.
 - Nothing is drawn outside the page box.
 
-`WhiteMode` picks the undercoat: `none` (white enclosures), `full` (flood the
-artboard), `auto` (follow the artwork's alpha — a `Separation` image whose
-sample values are the alpha channel, so transparent areas get no white and the
-bare enclosure shows through). Auto on a fully opaque image emits a rectangle
-instead of an image, since the result is identical and much smaller.
+White and gloss are the same shape of thing — an ink layer painted through a
+`Separation` colour space — so they share one `coating` type and one code
+path. A coating is either a flood-filled rectangle (uniform full coverage) or
+a coverage image carrying one 8-bit tint per pixel.
 
-Alpha premultiplication is undone before CMYK conversion; skipping that
-muddies semi-transparent artwork. There is a test pinning that.
+`WhiteMode`: `none` (white enclosures), `full`, `auto` (follow the artwork's
+alpha, so transparent areas get no undercoat). `GlossMode`: `none` (default —
+it is a paid add-on), `full`, `artwork`, `mask`. Auto/artwork on a fully
+opaque image emits a rectangle rather than an image, since the result is
+identical and much smaller.
+
+Two encoding traps, each with a test pinning it:
+
+- **Alpha premultiplication is undone before CMYK conversion.** Skipping it
+  muddies semi-transparent artwork.
+- **Coverage images carry an `/SMask` equal to their coverage.** A `Separation`
+  image paints its *alternate* space, and zero tint there is white, not
+  nothing — so without the mask, the uncoated part of a layer covers
+  everything beneath it in opaque white. This is invisible for a white
+  undercoat (white on white) and obvious the moment gloss sits on top, which
+  is how it was found. Alpha must track tint.
+
+Gloss mask coverage is read from alpha when the mask has transparency, and
+from Rec. 601 luma otherwise (white coats, black leaves bare). The mask is
+scaled to the artboard independently of the artwork, so the two need not share
+pixel dimensions.
 
 ### Verifying PDF output
 
@@ -128,8 +149,7 @@ Then look at the PNG: correct orientation, no vertical flip, colours intact.
 - **TUI.** The README wants a TUI over this same core. The CLI must stay
   complete on its own — the README's point is that it be automatable by an
   agent, so no TUI-only capability.
-- **`RDG_GLOSS` layer.** A paid add-on. The spot colour constant and its
-  alternate CMYK values are defined; nothing generates the layer.
 - **`RDG_WHITE_2`** (advanced White → CMYK → White mode). The guide lists it as
   not yet available.
+- **"Print white layer twice"** add-on. Not represented in the file.
 - **Batch mode** for converting all six sides in one invocation.
