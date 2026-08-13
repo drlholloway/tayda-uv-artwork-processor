@@ -71,6 +71,9 @@ tayda-uv validate -e 1590B -s A face.png
 
 # write the print-ready PDF
 tayda-uv convert -e 1590B -s A -o face.pdf face.png
+
+# read the finished PDF back and check what is actually in it
+tayda-uv inspect -e 1590B -s A face.pdf
 ```
 
 Run `convert` once per side. Each PDF is a single artboard, which is what the
@@ -128,9 +131,41 @@ image looks rotated 90°. Use `-force` to write anyway.
 `validate` exits 0 when the artwork is ready and 1 when it is not, so it works
 in a script. Exit 2 always means the command itself was typed wrong.
 
-Validation is not a substitute for Tayda's own
-[PDF Analyzer](https://www.taydaelectronics.com/uv-printing-service-guide-v1)
-(user `pdfman` / pass `pdfman`). Always order a small quantity first.
+### Inspection
+
+`validate` looks at artwork going in. `inspect` looks at the PDF coming out:
+
+```sh
+tayda-uv inspect face.pdf
+#   face.pdf: 1 page, 158.74 × 307.56 pt
+#     artboard: 56 × 108.5 mm            1590B side A, 1590B side Lid
+#     colour:   DeviceCMYK               no RGB OK
+#     spots:    RDG_WHITE                OK
+#     order:    RDG_WHITE → CMYK         OK
+```
+
+It re-reads the finished file the way an unfamiliar consumer would, rather than
+trusting the code that wrote it, and checks the things the guide is strict
+about: one artboard per file, at a size that is really an enclosure side; no RGB
+anywhere; spot names spelled exactly `RDG_WHITE` and `RDG_GLOSS`, which are
+case-sensitive; and White → CMYK → Gloss in that order.
+
+Add `-e` and `-s` to assert a specific side, which is what you want after a
+scripted `convert`. Without them it names every side matching that size — often
+two, since A and the Lid are identical, as are B and D, and C and E. It exits 0
+when every file passes and 1 when any does not.
+
+### None of this is Tayda's verdict
+
+`inspect` checks a file's structure. It cannot tell you the artwork is the right
+way up, or that the colours will come out as you pictured them. Tayda's own
+[PDF Analyzer](https://pdf.tayda.com) (user `pdfman` / pass `pdfman`) is the
+authority on whether they will print something — upload the file there before
+ordering, and always order a small quantity first.
+
+That step is deliberately manual. The Analyzer's API sits behind a login wrapped
+in reCAPTCHA, and scripting past bot detection someone deployed on purpose is
+not a thing this tool does.
 
 ## Agent skill
 

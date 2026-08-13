@@ -13,6 +13,7 @@ package enclosure
 
 import (
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 )
@@ -115,6 +116,47 @@ func ParseSide(s string) (Side, error) {
 		}
 	}
 	return "", fmt.Errorf("unknown side %q (sides are %s)", s, joinSides(Sides))
+}
+
+// Match names one enclosure side whose artboard is a given size.
+type Match struct {
+	Enclosure string
+	Side      Side
+	Size      Size
+}
+
+func (m Match) String() string { return m.Enclosure + " side " + string(m.Side) }
+
+// MatchSizeEpsilonMM is how far a measured artboard may sit from a catalogue
+// size and still be called that size. It is a rounding allowance for the trip
+// through PDF points and back — not the printing tolerance, which is a
+// different thing entirely and much larger. See ToleranceMM.
+const MatchSizeEpsilonMM = 0.05
+
+// MatchSize lists the enclosure sides whose artboard is the given size.
+//
+// Several matches is the normal case, not an ambiguity to resolve: side A and
+// the Lid are the same size on every enclosure, as are B and D, and C and E.
+// A file cannot say which of them it was drawn for, so this reports all of
+// them and lets the caller say so.
+//
+// Results are ordered by enclosure name, then by the guide's side order.
+func MatchSize(widthMM, heightMM float64) []Match {
+	var out []Match
+	for _, n := range Names() {
+		e := catalog[strings.ToLower(n)]
+		for _, s := range Sides {
+			sz, ok := e.sides[s]
+			if !ok {
+				continue
+			}
+			if math.Abs(sz.WidthMM-widthMM) <= MatchSizeEpsilonMM &&
+				math.Abs(sz.HeightMM-heightMM) <= MatchSizeEpsilonMM {
+				out = append(out, Match{Enclosure: e.Name, Side: s, Size: sz})
+			}
+		}
+	}
+	return out
 }
 
 // Names lists every known enclosure, sorted for stable output.

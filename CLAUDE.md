@@ -43,7 +43,24 @@ Two facts from that guide shape every decision here:
 
 Tayda's own PDF Analyzer (user `pdfman` / pass `pdfman`) is the final
 authority on whether output is acceptable. Recommend it; don't claim a file is
-correct without it.
+correct without it. `tayda-uv inspect` checks the file's structure locally and
+is **not** a substitute — it says the file is shaped right, not that Tayda will
+print it.
+
+### Why the Analyzer is not automated
+
+This was investigated and deliberately not built. <https://pdf.tayda.com> has a
+usable REST API — `POST /api/objects/upload` returns a presigned URL, the PDF
+is `PUT` there, then `POST /api/analyze` with `{objectPath, fileName, fileSize}`
+returns the verdict as JSON. But both endpoints return
+`401 {"error":"Not authenticated"}`, and the login they sit behind is wrapped in
+reCAPTCHA v3 on `tayda.com` hosts. Driving it from a script means defeating bot
+detection Tayda chose to deploy, so the tool does not do it, and a server-side
+score threshold could start failing silently at any time even if it did.
+
+`inspect` exists to cover what can be checked honestly and offline. If
+programmatic access is wanted, ask Tayda for it rather than working around the
+gate.
 
 ## Architecture
 
@@ -53,12 +70,16 @@ cmd/tayda-uv/        CLI (stdlib flag, subcommands)
 internal/enclosure/  the artboard dimension table — ground truth
 internal/artwork/    decode + validate a source image against a side
 internal/pdfgen/     hand-rolled PDF emitter targeting the Tayda spec
+internal/pdfinspect/ partial PDF reader, for checking finished files
 internal/tui/        Bubble Tea interactive front end
 ```
 
 Data flows one way: `enclosure` supplies a `Size` in millimetres → `artwork`
 checks a decoded image against it → `pdfgen` renders the image onto an
 artboard of exactly that size. `enclosure` depends on nothing.
+
+`pdfinspect` sits outside that flow, reading finished PDFs rather than making
+them. It imports nothing from this repo on purpose — see below.
 
 **Dependencies are limited to the TUI.** Bubble Tea, Bubbles and Lipgloss are
 used by `internal/tui` and nothing else; `enclosure`, `artwork` and `pdfgen`
@@ -181,6 +202,40 @@ Gloss mask coverage is read from alpha when the mask has transparency, and
 from Rec. 601 luma otherwise (white coats, black leaves bare). The mask is
 scaled to the artboard independently of the artwork, so the two need not share
 pixel dimensions.
+
+### `internal/pdfinspect`
+
+A partial PDF reader behind `tayda-uv inspect`. It reports the artboard in mm,
+the colour spaces present, the `Separation` ink names, the optional content
+group names, and the order the content stream actually paints the layers in.
+
+**It is written from the PDF spec, not from `pdfgen`, and imports nothing from
+this repo.** That independence is the whole point: `pdfgen`'s own tests can
+only catch mistakes it is inconsistent about, never one it makes the same way
+every time. A reader that shared the writer's assumptions would reproduce them
+instead of catching them. The round-trip tests in `roundtrip_test.go` are what
+make the pair worth having — mutate the paint order in `pdfgen` and they fail.
+
+Design rules:
+
+- **Never report "clean" about a file it failed to parse.** Encryption, an
+  unsupported filter, a missing page tree and an unknown predictor are all
+  errors or `Notes`, never silence. A checker that passes files it did not
+  understand is worse than no checker.
+- **Do not follow the cross-reference table.** It scans for `N G obj` headers
+  instead, so a damaged xref is still inspectable — and that is exactly the
+  file worth being able to look at. Stream payloads are skipped over so image
+  bytes that happen to spell an object header cannot shadow a real object;
+  `TestStreamBytesCannotInventAnObject` pins this.
+- **Object streams are unpacked** (`/Type/ObjStm`). Illustrator and Inkscape
+  pack most objects that way; without it their files look nearly empty.
+- **Names and strings are decoded properly** — `#5F` escapes and octal string
+  escapes both. `RDG#5FWHITE` is `RDG_WHITE`, and a reader that missed that
+  would report a spot colour that does not exist.
+
+It knows nothing about enclosures. Matching an artboard to a side is
+`enclosure.MatchSize`, which returns every side of that size — normally more
+than one, since A equals the Lid, B equals D and C equals E.
 
 ### Verifying PDF output
 

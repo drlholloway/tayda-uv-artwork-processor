@@ -74,6 +74,8 @@ func main() {
 		err = cmdValidate(args)
 	case "convert":
 		err = cmdConvert(args)
+	case "inspect":
+		err = cmdInspect(args)
 	default:
 		fmt.Fprintf(os.Stderr, "error: unknown command %q\n\n", name)
 		printUsage(os.Stderr)

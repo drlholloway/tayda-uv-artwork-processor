@@ -88,6 +88,37 @@ when you upload. It is not recorded in the PDF.`,
 		flagSet: func() *flag.FlagSet { return convertFlags(&convertOpts{}) },
 		targets: true,
 	},
+	{
+		name:     "inspect",
+		synopsis: "inspect [-e <enclosure> -s <side>] <pdf>...",
+		summary:  "Read a finished PDF back and check what it actually contains.",
+		notes: `Where validate looks at artwork before printing, inspect looks at the
+PDF afterwards. It reads the file the way an unfamiliar consumer would
+rather than trusting the writer that produced it, and reports:
+
+  artboard  the page size in mm, and which enclosure side that is
+  colour    the colour spaces present, and whether any RGB got in
+  spots     the Separation ink names, which are case-sensitive
+  order     the order the layers are actually painted in
+
+With -e and -s it asserts the artboard is that exact side. Without them
+it names whichever sides match, which is usually more than one: side A
+and the Lid are the same size, as are B and D, and C and E.
+
+Exits 0 when every file passes and 1 when any does not, so it works as
+the gate after a convert.
+
+This is a local check of the file's structure, not Tayda's verdict on
+it. Their PDF Analyzer stays the authority on whether they will print
+something, and a small first order stays the way to be sure.`,
+		examples: []string{
+			"tayda-uv inspect face.pdf",
+			"tayda-uv inspect -e 1590B -s A face.pdf",
+			"tayda-uv inspect out-*.pdf",
+		},
+		flagSet: func() *flag.FlagSet { return inspectFlags(&inspectOpts{}) },
+		targets: true,
+	},
 }
 
 func lookupCommand(name string) (command, bool) {

@@ -1,6 +1,6 @@
 ---
 name: tayda-uv
-description: Prepare pedal-enclosure artwork for the Tayda UV printing service — validate an image against an enclosure side and emit the print-ready PDF (CMYK, RDG_WHITE undercoat, optional RDG_GLOSS varnish). Use whenever the user mentions Tayda UV printing, printing on a 1590B/125B/1590XX-style enclosure, guitar-pedal enclosure artwork, artboard sizes for an enclosure side, or asks whether an image is print-ready for a pedal face, or wants a PDF for the Tayda Box Tool.
+description: Prepare pedal-enclosure artwork for the Tayda UV printing service — validate an image against an enclosure side, emit the print-ready PDF (CMYK, RDG_WHITE undercoat, optional RDG_GLOSS varnish), and inspect a finished PDF to confirm its artboard, spot colours and print order. Use whenever the user mentions Tayda UV printing, printing on a 1590B/125B/1590XX-style enclosure, guitar-pedal enclosure artwork, artboard sizes for an enclosure side, or asks whether an image is print-ready for a pedal face, whether a PDF is correct for Tayda, or wants a PDF for the Tayda Box Tool.
 ---
 
 # Tayda UV artwork
@@ -89,15 +89,37 @@ written, e.g. `layers: RDG_WHITE → CMYK`.
 problems, so a separate `validate` step is only needed when you want to check
 without producing a file.
 
-**4. Tell the user to verify.** Tayda's PDF Analyzer (user `pdfman`, pass
-`pdfman`) is the final authority. You can also confirm the file parses and looks
-right locally:
+**4. Inspect the result.** This is your programmatic gate — run it after every
+convert. It re-reads the finished PDF and checks it independently of the code
+that wrote it. Exit 0 clean, 1 if anything is wrong.
+
+```sh
+tayda-uv inspect -e 1590B -s A face.pdf
+```
+
+```
+face.pdf: 1 page, 158.74 × 307.56 pt
+  artboard: 56 × 108.5 mm            1590B side A OK
+  colour:   DeviceCMYK               no RGB OK
+  spots:    RDG_WHITE                OK
+  order:    RDG_WHITE → CMYK         OK
+```
+
+Always pass `-e`/`-s` when you know them — without them it only checks the
+artboard is *some* valid side, which will happily pass a file built for the
+wrong one. It accepts several PDFs at once and reports on each.
+
+**5. Look at it, and tell the user to verify.** `inspect` proves the file's
+structure, not that the artwork is the right way up or the colours are what
+anyone pictured. Render it and actually read the image:
 
 ```sh
 qlmanage -t -s 400 -o render face.pdf   # writes render/face.pdf.png
 ```
 
-Then read the PNG: right orientation, no vertical flip, colours intact.
+Check orientation, no vertical flip, colours intact. Then point the user at
+Tayda's PDF Analyzer (<https://pdf.tayda.com>, user `pdfman`, pass `pdfman`),
+which is the final authority, and remind them to order one enclosure first.
 
 ## Choosing `-white`
 
@@ -145,11 +167,13 @@ decides.
 | 2 | the command was typed wrong — unknown enclosure or side, missing flag |
 
 There is no batch mode, so doing every side is a loop. `convert` validates on
-its own and skips what it cannot print correctly:
+its own and skips what it cannot print correctly; `inspect` confirms what it
+wrote:
 
 ```sh
 for s in A B C D E Lid; do
-  tayda-uv convert -e 1590B -s "$s" -white full -o "out-$s.pdf" "art-$s.png"
+  tayda-uv convert -e 1590B -s "$s" -white full -o "out-$s.pdf" "art-$s.png" &&
+  tayda-uv inspect -e 1590B -s "$s" "out-$s.pdf"
 done
 ```
 
@@ -166,6 +190,10 @@ stopping at the first one.
   (<https://www.taydaelectronics.com/uv-printing-service-guide-v1>) in a browser
   — it 403s plain HTTP fetches — rather than adjusting numbers.
 - **Recommend ordering a single enclosure before a batch.**
+- **Don't try to script Tayda's PDF Analyzer.** It has a REST API, but the
+  endpoints are authenticated and the login is behind reCAPTCHA. Uploading the
+  file is the user's step, in their browser. `inspect` is the automatable check;
+  it is not the same thing and must not be described as Tayda's approval.
 
 ## Interactive alternative
 
