@@ -14,7 +14,7 @@ import (
 	_ "image/jpeg"
 	_ "image/png"
 
-	"github.com/laneholloway/tayda-uv-artwork-processor/internal/enclosure"
+	"github.com/drlholloway/tayda-uv-artwork-processor/internal/enclosure"
 )
 
 // MinDPI is the resolution floor the guide states for embedded images

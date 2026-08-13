@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/laneholloway/tayda-uv-artwork-processor/internal/enclosure"
+	"github.com/drlholloway/tayda-uv-artwork-processor/internal/enclosure"
 )
 
 // 1590B side A: 56 × 108.50 mm. At 300 DPI that is 662 × 1282 px.

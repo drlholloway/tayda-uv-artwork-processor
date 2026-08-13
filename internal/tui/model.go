@@ -14,9 +14,9 @@ import (
 	"github.com/charmbracelet/bubbles/filepicker"
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/laneholloway/tayda-uv-artwork-processor/internal/artwork"
-	"github.com/laneholloway/tayda-uv-artwork-processor/internal/enclosure"
-	"github.com/laneholloway/tayda-uv-artwork-processor/internal/pdfgen"
+	"github.com/drlholloway/tayda-uv-artwork-processor/internal/artwork"
+	"github.com/drlholloway/tayda-uv-artwork-processor/internal/enclosure"
+	"github.com/drlholloway/tayda-uv-artwork-processor/internal/pdfgen"
 )
 
 type screen int

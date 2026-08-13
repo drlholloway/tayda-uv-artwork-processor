@@ -11,8 +11,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/laneholloway/tayda-uv-artwork-processor/internal/enclosure"
-	"github.com/laneholloway/tayda-uv-artwork-processor/internal/pdfgen"
+	"github.com/drlholloway/tayda-uv-artwork-processor/internal/enclosure"
+	"github.com/drlholloway/tayda-uv-artwork-processor/internal/pdfgen"
 )
 
 // 1590B side A is 56 × 108.5 mm. That ratio reduces to 112:217, so 672 × 1302

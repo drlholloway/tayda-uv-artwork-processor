@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/laneholloway/tayda-uv-artwork-processor/internal/enclosure"
-	"github.com/laneholloway/tayda-uv-artwork-processor/internal/pdfgen"
+	"github.com/drlholloway/tayda-uv-artwork-processor/internal/enclosure"
+	"github.com/drlholloway/tayda-uv-artwork-processor/internal/pdfgen"
 )
 
 // Help is the only documentation a user has at the terminal, so make sure

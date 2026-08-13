@@ -9,8 +9,8 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/laneholloway/tayda-uv-artwork-processor/internal/enclosure"
-	"github.com/laneholloway/tayda-uv-artwork-processor/internal/pdfgen"
+	"github.com/drlholloway/tayda-uv-artwork-processor/internal/enclosure"
+	"github.com/drlholloway/tayda-uv-artwork-processor/internal/pdfgen"
 )
 
 // Colours are adaptive so the interface stays legible on a light terminal as

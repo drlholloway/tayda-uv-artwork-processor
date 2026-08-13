@@ -13,9 +13,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/laneholloway/tayda-uv-artwork-processor/internal/enclosure"
-	"github.com/laneholloway/tayda-uv-artwork-processor/internal/pdfgen"
-	"github.com/laneholloway/tayda-uv-artwork-processor/internal/pdfinspect"
+	"github.com/drlholloway/tayda-uv-artwork-processor/internal/enclosure"
+	"github.com/drlholloway/tayda-uv-artwork-processor/internal/pdfgen"
+	"github.com/drlholloway/tayda-uv-artwork-processor/internal/pdfinspect"
 )
 
 func opaque(w, h int) image.Image {

@@ -14,10 +14,10 @@ import (
 	"strings"
 	"text/tabwriter"
 
-	"github.com/laneholloway/tayda-uv-artwork-processor/internal/artwork"
-	"github.com/laneholloway/tayda-uv-artwork-processor/internal/enclosure"
-	"github.com/laneholloway/tayda-uv-artwork-processor/internal/pdfgen"
-	"github.com/laneholloway/tayda-uv-artwork-processor/internal/tui"
+	"github.com/drlholloway/tayda-uv-artwork-processor/internal/artwork"
+	"github.com/drlholloway/tayda-uv-artwork-processor/internal/enclosure"
+	"github.com/drlholloway/tayda-uv-artwork-processor/internal/pdfgen"
+	"github.com/drlholloway/tayda-uv-artwork-processor/internal/tui"
 )
 
 // usageError is a mistake in how the command was invoked, as opposed to a
