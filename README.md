@@ -132,6 +132,21 @@ Validation is not a substitute for Tayda's own
 [PDF Analyzer](https://www.taydaelectronics.com/uv-printing-service-guide-v1)
 (user `pdfman` / pass `pdfman`). Always order a small quantity first.
 
+## Agent skill
+
+`.claude/skills/tayda-uv/` is a [Claude Code](https://claude.com/claude-code)
+skill that teaches an agent to drive this tool: the validate-then-convert
+workflow, how to pick `-white` from the enclosure's colour, that gloss is a paid
+add-on and stays off unless asked, and that `-force` is never its call to make.
+
+It is active for any agent working inside this repo. To use it anywhere — which
+is the point, since your artwork lives elsewhere:
+
+```sh
+go install ./cmd/tayda-uv          # puts tayda-uv on PATH via ~/go/bin
+ln -s "$PWD/.claude/skills/tayda-uv" ~/.claude/skills/tayda-uv
+```
+
 ## References
 [Tayda UV Printing Service Guide](https://www.taydaelectronics.com/uv-printing-service-guide-v1)
 — currently serving V2 (April 22 2026) despite the `v1` URL. The artboard
