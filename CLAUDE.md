@@ -49,6 +49,7 @@ correct without it.
 
 ```
 cmd/tayda-uv/        CLI (stdlib flag, subcommands)
+  help.go            command descriptions and all help rendering
 internal/enclosure/  the artboard dimension table — ground truth
 internal/artwork/    decode + validate a source image against a side
 internal/pdfgen/     hand-rolled PDF emitter targeting the Tayda spec
@@ -62,6 +63,24 @@ artboard of exactly that size. `enclosure` depends on nothing.
 is that the existing web tool may vanish; a build that only needs the Go
 toolchain is the answer to that. Do not add a module dependency without a
 reason that outweighs it.
+
+### `cmd/tayda-uv`
+
+Each subcommand is described once, in the `commands` table in `help.go`:
+synopsis, summary, notes, examples, and a builder for its flag set. Both the
+help output and the running command use that same flag builder, so the two
+cannot disagree about what flags exist. **When adding a flag or a subcommand,
+add it there** — help is generated, not hand-maintained. The enclosure and
+side lists in help come from the catalogue for the same reason.
+
+Conventions worth keeping:
+
+- **Help asked for goes to stdout and exits 0**; help shown because of a
+  mistake goes to stderr. `tayda-uv --help | less` should work.
+- **Exit 2 means the command was typed wrong, exit 1 means the work failed.**
+  A script can tell "no such enclosure" from "this artwork is too low-res".
+  Usage mistakes are returned as `*usageError`, which also prints a pointer to
+  the relevant `tayda-uv help <command>`.
 
 ### `internal/enclosure`
 

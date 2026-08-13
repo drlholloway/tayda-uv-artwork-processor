@@ -25,6 +25,10 @@ No third-party dependencies — the Go toolchain is all you need.
 ## Usage
 
 ```sh
+# every command explains itself
+tayda-uv help
+tayda-uv help convert
+
 # what can it print on?
 tayda-uv enclosures
 
@@ -93,6 +97,9 @@ Two things the guide is firm about, which the tool repeats back to you:
 print correctly. It checks that the artwork resolves to at least 300 DPI at
 physical size, that its aspect ratio matches the artboard, and warns when an
 image looks rotated 90°. Use `-force` to write anyway.
+
+`validate` exits 0 when the artwork is ready and 1 when it is not, so it works
+in a script. Exit 2 always means the command itself was typed wrong.
 
 Validation is not a substitute for Tayda's own
 [PDF Analyzer](https://www.taydaelectronics.com/uv-printing-service-guide-v1)

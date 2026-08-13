@@ -5,8 +5,10 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,67 +19,117 @@ import (
 	"github.com/laneholloway/tayda-uv-artwork-processor/internal/pdfgen"
 )
 
+// usageError is a mistake in how the command was invoked, as opposed to a
+// problem with the artwork. It exits 2 and points at the relevant help.
+type usageError struct {
+	cmd string
+	msg string
+}
+
+func (e *usageError) Error() string { return e.msg }
+
+// errParsed stands in for a flag-parsing failure the flag package has already
+// reported, so main exits without printing a second message.
+var errParsed = errors.New("flag parse error")
+
 func main() {
 	if len(os.Args) < 2 {
-		usage()
+		printUsage(os.Stderr)
 		os.Exit(2)
 	}
 
+	name, args := os.Args[1], os.Args[2:]
+
+	// Asking for help is not an error, so it goes to stdout and exits 0 —
+	// `tayda-uv --help | less` should show something.
+	if name == "help" || name == "-h" || name == "-help" || name == "--help" {
+		os.Exit(runHelp(args))
+	}
+
 	var err error
-	switch os.Args[1] {
+	switch name {
 	case "enclosures":
-		err = cmdEnclosures()
+		err = cmdEnclosures(args)
 	case "sides":
-		err = cmdSides(os.Args[2:])
+		err = cmdSides(args)
 	case "validate":
-		err = cmdValidate(os.Args[2:])
+		err = cmdValidate(args)
 	case "convert":
-		err = cmdConvert(os.Args[2:])
-	case "-h", "--help", "help":
-		usage()
-		return
+		err = cmdConvert(args)
 	default:
-		fmt.Fprintf(os.Stderr, "unknown command %q\n\n", os.Args[1])
-		usage()
+		fmt.Fprintf(os.Stderr, "error: unknown command %q\n\n", name)
+		printUsage(os.Stderr)
 		os.Exit(2)
 	}
 
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
-		os.Exit(1)
+		os.Exit(report(os.Stderr, err))
 	}
 }
 
-func usage() {
-	fmt.Fprint(os.Stderr, `tayda-uv — prepare artwork for the Tayda UV printing service
-
-Usage:
-  tayda-uv enclosures                       list supported enclosures
-  tayda-uv sides <enclosure>                show artboard sizes for each side
-  tayda-uv validate -e <enc> -s <side> <image>
-                                            check artwork without writing a file
-  tayda-uv convert  -e <enc> -s <side> [-white auto|none|full]
-                    [-gloss none|full|artwork|mask] [-gloss-mask m.png]
-                    [-o out.pdf] <image>
-                                            write a print-ready PDF
-
-Examples:
-  tayda-uv sides 1590B
-  tayda-uv validate -e 1590B -s A face.png
-  tayda-uv convert -e 1590B -s A -white full -o face.pdf face.png
-  tayda-uv convert -e 1590B -s A -gloss-mask logo-only.png face.png
-
-Gloss is a paid add-on. A mask coats only part of the design: opaque or white
-areas get varnish, transparent or black areas stay bare. Whether that varnish
-is gloss or matte is chosen in the Tayda Box Tool, not in the file.
-
-Artboard sizes come from the Tayda UV Printing Service File Preparation Guide.
-Tayda prints files exactly as submitted, so check the result before ordering in
-quantity — their PDF Analyzer tool is the final word.
-`)
+// report prints an error in the shape its kind deserves and returns the exit
+// status to use: 2 when the command was typed wrong, 1 when the work itself
+// failed. Scripts can tell the two apart.
+func report(w io.Writer, err error) int {
+	if errors.Is(err, errParsed) {
+		return 2 // the flag package already said what was wrong
+	}
+	var ue *usageError
+	if errors.As(err, &ue) {
+		fmt.Fprintf(w, "error: %s\n", ue.msg)
+		if ue.cmd != "" {
+			fmt.Fprintf(w, "run 'tayda-uv help %s' for usage.\n", ue.cmd)
+		}
+		return 2
+	}
+	fmt.Fprintln(w, "error:", err)
+	return 1
 }
 
-func cmdEnclosures() error {
+func runHelp(args []string) int {
+	if len(args) == 0 {
+		printUsage(os.Stdout)
+		return 0
+	}
+	c, ok := lookupCommand(args[0])
+	if !ok {
+		fmt.Fprintf(os.Stderr, "error: unknown command %q\n\n", args[0])
+		printUsage(os.Stderr)
+		return 2
+	}
+	c.printUsage(os.Stdout)
+	return 0
+}
+
+// setup wires a command's flag set to its own help text, so a bad flag prints
+// something useful, and handles an explicit -h before any parsing.
+func setup(name string, fs *flag.FlagSet, args []string) (helped bool, err error) {
+	c, ok := lookupCommand(name)
+	if !ok {
+		return false, fmt.Errorf("internal error: no help registered for %q", name)
+	}
+	fs.SetOutput(os.Stderr)
+	fs.Usage = func() { c.printUsage(os.Stderr) }
+
+	if wantsHelp(args) {
+		c.printUsage(os.Stdout)
+		return true, nil
+	}
+	if err := fs.Parse(args); err != nil {
+		return false, errParsed
+	}
+	return false, nil
+}
+
+func cmdEnclosures(args []string) error {
+	if wantsHelp(args) {
+		c, _ := lookupCommand("enclosures")
+		c.printUsage(os.Stdout)
+		return nil
+	}
+	if len(args) != 0 {
+		return &usageError{cmd: "enclosures", msg: "enclosures takes no arguments"}
+	}
 	for _, name := range enclosure.Names() {
 		fmt.Println(name)
 	}
@@ -85,12 +137,19 @@ func cmdEnclosures() error {
 }
 
 func cmdSides(args []string) error {
+	if wantsHelp(args) {
+		c, _ := lookupCommand("sides")
+		c.printUsage(os.Stdout)
+		return nil
+	}
 	if len(args) != 1 {
-		return fmt.Errorf("usage: tayda-uv sides <enclosure>")
+		return &usageError{cmd: "sides", msg: "sides takes exactly one enclosure name"}
 	}
 	e, err := enclosure.Lookup(args[0])
 	if err != nil {
-		return err
+		// Naming an enclosure that does not exist is a typing mistake, the
+		// same as it is for convert's -e.
+		return &usageError{cmd: "sides", msg: err.Error()}
 	}
 
 	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
@@ -107,36 +166,30 @@ func cmdSides(args []string) error {
 	return tw.Flush()
 }
 
-// target resolves the -e/-s flags shared by validate and convert.
-func target(fs *flag.FlagSet, encName, sideName string) (enclosure.Size, enclosure.Side, error) {
-	if encName == "" || sideName == "" {
-		fs.Usage()
-		return enclosure.Size{}, "", fmt.Errorf("both -e and -s are required")
-	}
-	e, err := enclosure.Lookup(encName)
-	if err != nil {
-		return enclosure.Size{}, "", err
-	}
-	side, err := enclosure.ParseSide(sideName)
-	if err != nil {
-		return enclosure.Size{}, "", err
-	}
-	sz, err := e.Size(side)
-	return sz, side, err
+type validateOpts struct {
+	enclosure string
+	side      string
+}
+
+func validateFlags(o *validateOpts) *flag.FlagSet {
+	fs := flag.NewFlagSet("validate", flag.ContinueOnError)
+	fs.StringVar(&o.enclosure, "e", "", "enclosure name, e.g. 1590B")
+	fs.StringVar(&o.side, "s", "", "side to print on")
+	return fs
 }
 
 func cmdValidate(args []string) error {
-	fs := flag.NewFlagSet("validate", flag.ExitOnError)
-	encName := fs.String("e", "", "enclosure name, e.g. 1590B")
-	sideName := fs.String("s", "", "side: A, B, C, D, E or Lid")
-	if err := fs.Parse(args); err != nil {
+	var o validateOpts
+	fs := validateFlags(&o)
+	helped, err := setup("validate", fs, args)
+	if helped || err != nil {
 		return err
 	}
 	if fs.NArg() != 1 {
-		return fmt.Errorf("usage: tayda-uv validate -e <enclosure> -s <side> <image>")
+		return &usageError{cmd: "validate", msg: "validate needs exactly one image"}
 	}
 
-	size, side, err := target(fs, *encName, *sideName)
+	size, side, err := resolve("validate", o.enclosure, o.side)
 	if err != nil {
 		return err
 	}
@@ -153,61 +206,79 @@ func cmdValidate(args []string) error {
 	return nil
 }
 
+type convertOpts struct {
+	enclosure string
+	side      string
+	white     string
+	gloss     string
+	glossMask string
+	out       string
+	force     bool
+}
+
+func convertFlags(o *convertOpts) *flag.FlagSet {
+	fs := flag.NewFlagSet("convert", flag.ContinueOnError)
+	fs.StringVar(&o.enclosure, "e", "", "enclosure name, e.g. 1590B")
+	fs.StringVar(&o.side, "s", "", "side to print on")
+	fs.StringVar(&o.white, "white", "auto", "RDG_WHITE undercoat: none, auto or full")
+	fs.StringVar(&o.gloss, "gloss", "none", "RDG_GLOSS varnish: none, full, artwork or mask")
+	fs.StringVar(&o.glossMask, "gloss-mask", "", "image marking where varnish goes; implies -gloss mask")
+	fs.StringVar(&o.out, "o", "", "output PDF, default <image>-<enclosure>-<side>.pdf")
+	fs.BoolVar(&o.force, "force", false, "write the PDF even if validation finds problems")
+	return fs
+}
+
 func cmdConvert(args []string) error {
-	fs := flag.NewFlagSet("convert", flag.ExitOnError)
-	encName := fs.String("e", "", "enclosure name, e.g. 1590B")
-	sideName := fs.String("s", "", "side: A, B, C, D, E or Lid")
-	whiteName := fs.String("white", "auto", "RDG_WHITE undercoat: none, auto or full")
-	glossName := fs.String("gloss", "none", "RDG_GLOSS varnish: none, full, artwork or mask (paid add-on)")
-	maskPath := fs.String("gloss-mask", "", "image marking where varnish goes; implies -gloss mask")
-	outPath := fs.String("o", "", "output PDF (default: <image>-<enclosure>-<side>.pdf)")
-	force := fs.Bool("force", false, "write the PDF even if validation finds problems")
-	if err := fs.Parse(args); err != nil {
+	var o convertOpts
+	fs := convertFlags(&o)
+	helped, err := setup("convert", fs, args)
+	if helped || err != nil {
 		return err
 	}
 	if fs.NArg() != 1 {
-		return fmt.Errorf("usage: tayda-uv convert -e <enclosure> -s <side> <image>")
+		return &usageError{cmd: "convert", msg: "convert needs exactly one image"}
 	}
 
-	size, side, err := target(fs, *encName, *sideName)
+	size, side, err := resolve("convert", o.enclosure, o.side)
 	if err != nil {
 		return err
 	}
-	white, err := pdfgen.ParseWhiteMode(*whiteName)
+	white, err := pdfgen.ParseWhiteMode(o.white)
 	if err != nil {
-		return err
+		return &usageError{cmd: "convert", msg: err.Error()}
 	}
-	gloss, err := glossMode(*glossName, *maskPath)
+	gloss, err := glossMode(o.gloss, o.glossMask)
 	if err != nil {
-		return err
+		return &usageError{cmd: "convert", msg: err.Error()}
 	}
+
 	in := fs.Arg(0)
 	img, err := artwork.Load(in)
 	if err != nil {
 		return err
 	}
 
-	report := artwork.Check(img, side, size)
-	printReport("artwork", img, report)
-	ok := report.OK()
+	rep := artwork.Check(img, side, size)
+	printReport("artwork", img, rep)
+	ok := rep.OK()
 
 	var mask *artwork.Image
 	if gloss == pdfgen.GlossMask {
-		if mask, err = artwork.Load(*maskPath); err != nil {
+		if mask, err = artwork.Load(o.glossMask); err != nil {
 			return err
 		}
 		maskReport := artwork.CheckMask(mask, side, size)
 		printReport("gloss mask", mask, maskReport)
 		ok = ok && maskReport.OK()
 	}
-	if !ok && !*force {
+	if !ok && !o.force {
 		return fmt.Errorf("refusing to write a PDF that will not print correctly (use -force to override)")
 	}
 
-	out := *outPath
+	out := o.out
 	if out == "" {
 		base := strings.TrimSuffix(filepath.Base(in), filepath.Ext(in))
-		out = fmt.Sprintf("%s-%s-%s.pdf", base, strings.ToLower(*encName), strings.ToLower(string(side)))
+		out = fmt.Sprintf("%s-%s-%s.pdf", base, strings.ToLower(o.enclosure), strings.ToLower(string(side)))
 	}
 
 	f, err := os.Create(out)
@@ -236,6 +307,28 @@ func cmdConvert(args []string) error {
 	printGlossNotes(gloss, mask)
 	fmt.Println("check it with Tayda's PDF Analyzer before ordering.")
 	return nil
+}
+
+// resolve turns the -e/-s flags into an artboard size.
+func resolve(cmd, encName, sideName string) (enclosure.Size, enclosure.Side, error) {
+	switch {
+	case encName == "" && sideName == "":
+		return enclosure.Size{}, "", &usageError{cmd: cmd, msg: "-e <enclosure> and -s <side> are required"}
+	case encName == "":
+		return enclosure.Size{}, "", &usageError{cmd: cmd, msg: "-e <enclosure> is required"}
+	case sideName == "":
+		return enclosure.Size{}, "", &usageError{cmd: cmd, msg: "-s <side> is required"}
+	}
+	e, err := enclosure.Lookup(encName)
+	if err != nil {
+		return enclosure.Size{}, "", &usageError{cmd: cmd, msg: err.Error()}
+	}
+	side, err := enclosure.ParseSide(sideName)
+	if err != nil {
+		return enclosure.Size{}, "", &usageError{cmd: cmd, msg: err.Error()}
+	}
+	sz, err := e.Size(side)
+	return sz, side, err
 }
 
 // glossMode reconciles the two ways of asking for varnish. Supplying a mask
