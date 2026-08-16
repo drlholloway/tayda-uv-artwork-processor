@@ -412,7 +412,13 @@ func (d *document) decode(s stream) ([]byte, error) {
 	raw := s.raw
 	// /Length is authoritative, but a missing or indirect one is recoverable
 	// by looking for the endstream keyword.
-	if n, ok := d.num(s.d["Length"]); ok && int(n) <= len(raw) && n > 0 {
+	// Compared as floats, before any conversion. A /Length too large for an
+	// int converts to an implementation-defined value — on amd64, the most
+	// negative int, which passes both a "<= len(raw)" and a "> 0" test written
+	// the other way round and then panics on the slice. That it happens to
+	// saturate harmlessly on arm64 is exactly what makes it worth writing this
+	// way: the bug would never show up on the machine this is developed on.
+	if n, ok := d.num(s.d["Length"]); ok && n > 0 && n <= float64(len(raw)) {
 		raw = raw[:int(n)]
 	} else if i := bytes.Index(raw, []byte("endstream")); i >= 0 {
 		raw = bytes.TrimRight(raw[:i], "\r\n")
@@ -448,16 +454,42 @@ func (d *document) decode(s stream) ([]byte, error) {
 			return nil, fmt.Errorf("unsupported stream filter /%s", f)
 		}
 	}
-	if p := d.resolve(s.d["DecodeParms"]); p != nil && len(filters) > 0 {
-		// A predictor rearranges the bytes and would have to be undone before
-		// they mean anything. Say so rather than returning scrambled data.
-		if pd, ok := d.dict(p); ok {
-			if pred, ok := d.num(pd["Predictor"]); ok && pred > 1 {
-				return nil, fmt.Errorf("stream uses predictor %d, which is not supported", int(pred))
+	if len(filters) > 0 {
+		// /DP is the abbreviated form. Either may be a single dictionary or an
+		// array holding one per filter — and the array is what writers emit
+		// whenever /Filter is an array, which is the common
+		// /Filter[/FlateDecode]/DecodeParms[<</Predictor 12>>] shape. Reading
+		// only the dictionary form let predictor-encoded bytes through as
+		// though they had decoded cleanly.
+		for _, key := range []name{"DecodeParms", "DP"} {
+			switch p := d.resolve(s.d[key]).(type) {
+			case dict:
+				if err := predictorError(d, p); err != nil {
+					return nil, err
+				}
+			case array:
+				for _, e := range p {
+					if pd, ok := d.dict(e); ok {
+						if err := predictorError(d, pd); err != nil {
+							return nil, err
+						}
+					}
+				}
 			}
 		}
 	}
 	return raw, nil
+}
+
+// predictorError reports a predictor this package cannot undo. A predictor
+// rearranges the bytes and would have to be reversed before they mean
+// anything, so saying so beats returning scrambled data that later checks
+// would read as clean.
+func predictorError(d *document, parms dict) error {
+	if pred, ok := d.num(parms["Predictor"]); ok && pred > 1 {
+		return fmt.Errorf("stream uses predictor %d, which is not supported", int(pred))
+	}
+	return nil
 }
 
 // unpackObjectStreams pulls the objects out of any /Type/ObjStm and adds them
@@ -483,7 +515,14 @@ func (d *document) unpackObjectStreams() error {
 		}
 		n, okN := d.num(s.d["N"])
 		first, okF := d.num(s.d["First"])
-		if !okN || !okF || int(first) > len(data) {
+		// Both come from a file that may well be damaged — the kind this
+		// package exists to still be able to look at — so they are range
+		// checked as floats before any conversion. A negative /First sliced
+		// the data and panicked, which took down a whole `inspect *.pdf` run
+		// on one bad file instead of reporting it and moving on.
+		if !okN || !okF ||
+			first < 0 || first > float64(len(data)) ||
+			n < 0 || n > float64(len(data)) {
 			return fmt.Errorf("object stream has a bad /N or /First")
 		}
 		// The head is N pairs of "objectNumber byteOffset".

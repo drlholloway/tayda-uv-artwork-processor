@@ -334,7 +334,28 @@ Design rules:
   pack most objects that way; without it their files look nearly empty.
 - **Names and strings are decoded properly** — `#5F` escapes and octal string
   escapes both. `RDG#5FWHITE` is `RDG_WHITE`, and a reader that missed that
-  would report a spot colour that does not exist.
+  would report a spot colour that does not exist. This applies to names read
+  out of a *content stream* too: `paintOrder` runs the token captured from
+  `/OC /Name BDC` through the same lexer, or it never matches its own
+  `/Properties` key and the order check passes against a name no layer has.
+- **RGB is looked for in the form it actually arrives in.** Drawing programs
+  write `[/ICCBased N 0 R]`, not `/DeviceRGB`, and only the `/N` in the
+  profile stream distinguishes RGB from CMYK. `HasRGB` matches
+  `ICCBased RGB`, which `colorSpaces` produces by resolving that profile; an
+  ICC space it cannot resolve becomes a Note rather than silence.
+- **`/Rotate` is applied to the artboard.** A quarter turn swaps what the page
+  measures, and reporting it unrotated hands `enclosure.MatchSize` the wrong
+  side with full confidence.
+- **Damaged input must not take the tool down.** `/Length`, `/N` and `/First`
+  come from a possibly corrupt file and are range-checked as floats before any
+  `int` conversion — an out-of-range float converts to an
+  implementation-defined value, which on amd64 is the most negative int and
+  panics on the slice, while saturating harmlessly on arm64. The bug is
+  invisible on an Apple Silicon machine and crashes on a Linux build. A cyclic
+  page tree is bounded by a visited set, not only by the depth cap: bounding
+  depth does not bound work, and a node listing itself twice doubles the work
+  at every level. A panic here would abort a whole `inspect *.pdf` run on one
+  bad file rather than reporting it and moving on.
 
 It knows nothing about enclosures. Matching an artboard to a side is
 `enclosure.MatchSize`, which returns every side of that size — normally more

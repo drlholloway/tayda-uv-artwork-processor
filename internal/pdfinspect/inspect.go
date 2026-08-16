@@ -3,6 +3,7 @@ package pdfinspect
 import (
 	"bytes"
 	"fmt"
+	"math"
 	"regexp"
 	"sort"
 )
@@ -43,9 +44,14 @@ type Result struct {
 // HasRGB reports whether any RGB colour space reached the file. The guide
 // requires artwork in CMYK; RGB is converted by the printer's RIP with results
 // nobody chose.
+//
+// It reports the ICCBased case too, which is how RGB actually reaches a file
+// in practice: drawing programs write [/ICCBased N 0 R] rather than naming
+// /DeviceRGB, and only the component count in the profile gives it away.
 func (r Result) HasRGB() bool {
 	for _, cs := range r.ColorSpaces {
-		if cs == "DeviceRGB" || cs == "CalRGB" {
+		switch cs {
+		case "DeviceRGB", "CalRGB", "ICCBased RGB":
 			return true
 		}
 	}
@@ -79,7 +85,10 @@ func Inspect(b []byte) (Result, error) {
 
 	r.SpotColors = d.spotColors()
 	r.Layers = d.layerNames()
-	r.ColorSpaces = d.colorSpaces()
+
+	spaces, csNotes := d.colorSpaces()
+	r.ColorSpaces = spaces
+	r.Notes = append(r.Notes, csNotes...)
 
 	order, err := d.paintOrder(pages[0])
 	if err != nil {
@@ -119,7 +128,7 @@ func (d *document) pages() []dict {
 			continue
 		}
 		if root, ok := d.dict(dd["Pages"]); ok {
-			if out := d.walkPages(root, 0); len(out) > 0 {
+			if out := d.walkPages(root, 0, map[int]bool{}); len(out) > 0 {
 				return out
 			}
 		}
@@ -143,8 +152,16 @@ func (d *document) pages() []dict {
 	return out
 }
 
-func (d *document) walkPages(node dict, depth int) []dict {
-	if depth > 32 { // a malformed tree must not recurse forever
+// walkPages collects the page dictionaries beneath a node.
+//
+// visited holds the object numbers already entered on this walk. The depth
+// cap alone bounds how deep the recursion goes but not how much work it does:
+// a node listing itself twice doubles the work at every level, so a tree
+// thirty deep is a billion visits and the tool simply stops responding. A
+// damaged file is the one this package promises to still be able to look at,
+// so it must not be the one that hangs it.
+func (d *document) walkPages(node dict, depth int, visited map[int]bool) []dict {
+	if depth > 32 {
 		return nil
 	}
 	t, _ := d.name(node["Type"])
@@ -157,6 +174,14 @@ func (d *document) walkPages(node dict, depth int) []dict {
 	}
 	var out []dict
 	for _, k := range kids {
+		// Checked before resolving, since a cycle can only be formed by
+		// reference; a dictionary written inline cannot name itself.
+		if r, isRef := k.(ref); isRef {
+			if visited[r.num] {
+				continue
+			}
+			visited[r.num] = true
+		}
 		kd, ok := d.dict(k)
 		if !ok {
 			continue
@@ -169,7 +194,7 @@ func (d *document) walkPages(node dict, depth int) []dict {
 				}
 			}
 		}
-		out = append(out, d.walkPages(kd, depth+1)...)
+		out = append(out, d.walkPages(kd, depth+1, visited)...)
 	}
 	return out
 }
@@ -195,6 +220,24 @@ func (d *document) mediaBox(page dict) ([2]float64, bool) {
 	}
 	if h < 0 {
 		h = -h
+	}
+
+	// /Rotate turns the page for display, so a quarter turn swaps what the
+	// artboard measures. walkPages already inherits the key down the tree;
+	// ignoring it here reported a rotated page's sides the wrong way round,
+	// and enclosure.MatchSize then named the wrong side with full confidence
+	// — the ruined-enclosure mistake this tool exists to catch.
+	//
+	// math.Mod rather than an int conversion: /Rotate comes from the file and
+	// need not be a sane number, and NaN must fall through both cases.
+	if rot, ok := d.num(page["Rotate"]); ok {
+		deg := math.Mod(rot, 360)
+		if deg < 0 {
+			deg += 360
+		}
+		if deg == 90 || deg == 270 {
+			w, h = h, w
+		}
 	}
 	return [2]float64{w, h}, true
 }
@@ -297,11 +340,13 @@ func (d *document) layerNames() []string {
 	return out
 }
 
-// colorSpaces reports the device colour spaces named anywhere in the file,
-// both in object dictionaries and in content streams.
-func (d *document) colorSpaces() []string {
+// colorSpaces reports the colour spaces named anywhere in the file, both in
+// object dictionaries and in content streams, along with anything it could
+// not read well enough to be sure about.
+func (d *document) colorSpaces() (spaces, notes []string) {
 	known := []string{"DeviceCMYK", "DeviceRGB", "DeviceGray", "CalRGB", "CalGray", "Lab", "ICCBased", "Indexed"}
 	found := map[string]bool{}
+	unreadable := map[string]bool{}
 
 	for _, v := range d.objs {
 		d.each(v, 0, func(x any) {
@@ -313,6 +358,35 @@ func (d *document) colorSpaces() []string {
 				}
 			}
 		})
+		// An ICCBased space says nothing about itself; only the component
+		// count in its profile stream distinguishes RGB from CMYK. This is
+		// the form real RGB artwork arrives in — Illustrator, Inkscape and
+		// Acrobat all write [/ICCBased N 0 R] rather than /DeviceRGB — so
+		// without resolving it an entirely RGB file passed as "no RGB".
+		d.eachArray(v, func(a array) {
+			if len(a) < 2 {
+				return
+			}
+			if k, ok := d.name(a[0]); !ok || k != "ICCBased" {
+				return
+			}
+			s, ok := d.resolve(a[1]).(stream)
+			if !ok {
+				unreadable["an ICCBased colour space has no readable profile, so whether it is RGB is unknown"] = true
+				return
+			}
+			n, ok := d.num(s.d["N"])
+			if !ok {
+				unreadable["an ICCBased profile has no /N, so whether it is RGB is unknown"] = true
+				return
+			}
+			if nm := iccSpaceName(n); nm != "" {
+				found[nm] = true
+			} else {
+				unreadable[fmt.Sprintf("an ICCBased profile declares %g components, which is not a colour space this knows", n)] = true
+			}
+		})
+
 		// Content streams name colour spaces as operands, e.g. "/DeviceRGB cs".
 		if s, ok := v.(stream); ok {
 			if t, _ := d.name(s.d["Type"]); t == "ObjStm" {
@@ -320,6 +394,10 @@ func (d *document) colorSpaces() []string {
 			}
 			data, err := d.decode(s)
 			if err != nil {
+				// Silence here would be a verdict about bytes never read, and
+				// an unsupported filter or predictor is exactly where a stray
+				// "/DeviceRGB cs" would sit unseen.
+				unreadable[fmt.Sprintf("a stream could not be decoded (%v), so any colour space inside it was not seen", err)] = true
 				continue
 			}
 			for _, k := range known {
@@ -330,12 +408,30 @@ func (d *document) colorSpaces() []string {
 		}
 	}
 
-	var out []string
 	for k := range found {
-		out = append(out, k)
+		spaces = append(spaces, k)
 	}
-	sort.Strings(out)
-	return out
+	sort.Strings(spaces)
+	for k := range unreadable {
+		notes = append(notes, k)
+	}
+	sort.Strings(notes)
+	return spaces, notes
+}
+
+// iccSpaceName names an ICCBased space by its component count, which is the
+// only thing in the file that says which one it is. An unrecognised count
+// returns "" so the caller can say so rather than guess.
+func iccSpaceName(components float64) string {
+	switch components {
+	case 1:
+		return "ICCBased Gray"
+	case 3:
+		return "ICCBased RGB"
+	case 4:
+		return "ICCBased CMYK"
+	}
+	return ""
 }
 
 var bdcPattern = regexp.MustCompile(`/OC\s*/([^\s/\[\]<>()]+)\s+BDC`)
@@ -370,13 +466,32 @@ func (d *document) paintOrder(page dict) ([]string, error) {
 
 	var out []string
 	for _, m := range bdcPattern.FindAllSubmatch(content, -1) {
-		if n, ok := byResource[string(m[1])]; ok {
+		// The captured token is raw content-stream bytes, while the
+		// /Properties keys came through the parser already decoded. Without
+		// decoding it too, /OC /RDG#5FW BDC never matches its own entry, the
+		// fallback reports the undecoded token as the layer name, and the
+		// order check then compares against a name no OCG has and passes.
+		// This package treats #xx decoding as load-bearing everywhere else.
+		res := decodeNameToken(m[1])
+		if n, ok := byResource[res]; ok {
 			out = append(out, n)
 		} else {
-			out = append(out, string(m[1]))
+			out = append(out, res)
 		}
 	}
 	return out, nil
+}
+
+// decodeNameToken applies the #xx escapes a name written in a content stream
+// may carry. It runs the token through the same lexer the object parser uses,
+// so the two cannot decode a name differently.
+func decodeNameToken(token []byte) string {
+	l := &lexer{b: append([]byte{'/'}, token...)}
+	n, err := l.parseName()
+	if err != nil {
+		return string(token)
+	}
+	return string(n)
 }
 
 // pageContent concatenates the page's content streams, which /Contents may
@@ -391,14 +506,19 @@ func (d *document) pageContent(page dict) ([]byte, error) {
 		}
 		parts = append(parts, data)
 	case array:
-		for _, v := range t {
+		for i, v := range t {
+			// Skipping an entry would hand back a short content stream that
+			// reads as complete: the paint order comes back missing whichever
+			// layers lived in the part that was dropped, and a missing CMYK
+			// layer is reported as a clean White → Gloss order rather than as
+			// a file that could not be read.
 			s, ok := d.resolve(v).(stream)
 			if !ok {
-				continue
+				return nil, fmt.Errorf("/Contents entry %d is not a stream, so the paint order cannot be read in full", i)
 			}
 			data, err := d.decode(s)
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("/Contents entry %d: %w", i, err)
 			}
 			parts = append(parts, data)
 		}
