@@ -234,20 +234,74 @@ func TestCoverageLayersPaintNothingWhereThereIsNoInk(t *testing.T) {
 
 // A white mask coats everything, a black mask coats nothing: getting this
 // backwards would varnish exactly the wrong areas.
-func TestCoverageFractionReadsGreyscale(t *testing.T) {
+func TestGlossCoverageReadsAGreyscaleMask(t *testing.T) {
 	cases := map[uint8]float64{255: 1.0, 0: 0.0, 128: 128.0 / 255.0}
 	for v, want := range cases {
-		if got := CoverageFraction(grayMask(8, 8, v)); math.Abs(got-want) > 0.01 {
-			t.Errorf("CoverageFraction(grey %d) = %.3f, want %.3f", v, got, want)
+		got := glossCoverage(t, Job{
+			Image: opaqueImage(8, 8), WidthMM: 56, HeightMM: 108.5,
+			Gloss: GlossMask, GlossMask: grayMask(8, 8, v),
+		})
+		if math.Abs(got-want) > 0.01 {
+			t.Errorf("grey %d mask: coverage = %.3f, want %.3f", v, got, want)
 		}
 	}
 }
 
-func TestCoverageFractionReadsAlpha(t *testing.T) {
+func TestGlossCoverageReadsAMaskAlpha(t *testing.T) {
 	// Left half opaque, right half transparent.
-	if got := CoverageFraction(alphaMask(8, 8)); math.Abs(got-0.5) > 0.01 {
-		t.Errorf("CoverageFraction(half-transparent) = %.3f, want 0.5", got)
+	got := glossCoverage(t, Job{
+		Image: opaqueImage(8, 8), WidthMM: 56, HeightMM: 108.5,
+		Gloss: GlossMask, GlossMask: alphaMask(8, 8),
+	})
+	if math.Abs(got-0.5) > 0.01 {
+		t.Errorf("half-transparent mask: coverage = %.3f, want 0.5", got)
 	}
+}
+
+// The reported coverage has to describe the layer that was written, for every
+// mode — not just the one that happens to carry a mask image.
+//
+// GlossArtwork on opaque artwork is the case that matters. The coating floods
+// the whole side, but the artwork read as though it were a mask would fall
+// back to luminance and put this at 0.32, because opaqueImage is a dark red.
+// Reporting that would understate a full-side varnish, and the guide's
+// fingerprint warning turns on this number.
+func TestGlossCoverageMatchesTheLayerThatGetsWritten(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		job  Job
+		want float64
+	}{
+		{"none coats nothing", Job{Image: opaqueImage(8, 8), Gloss: GlossNone}, 0},
+		{"full floods the side", Job{Image: opaqueImage(8, 8), Gloss: GlossFull}, 1},
+		{"artwork on opaque art floods the side", Job{Image: opaqueImage(8, 8), Gloss: GlossArtwork}, 1},
+		{"artwork follows the artwork's alpha", Job{Image: transparentImage(8, 8), Gloss: GlossArtwork}, 0.5},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			c.job.WidthMM, c.job.HeightMM = 56, 108.5
+			if got := glossCoverage(t, c.job); math.Abs(got-c.want) > 0.01 {
+				t.Errorf("coverage = %.3f, want %.3f", got, c.want)
+			}
+		})
+	}
+}
+
+func TestGlossCoverageReportsAMissingMask(t *testing.T) {
+	_, err := GlossCoverage(Job{
+		Image: opaqueImage(8, 8), WidthMM: 56, HeightMM: 108.5, Gloss: GlossMask,
+	})
+	if err == nil {
+		t.Error("gloss mask mode with no mask reported a coverage anyway")
+	}
+}
+
+func glossCoverage(t *testing.T, j Job) float64 {
+	t.Helper()
+	got, err := GlossCoverage(j)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return got
 }
 
 func TestParseGlossMode(t *testing.T) {

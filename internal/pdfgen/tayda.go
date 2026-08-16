@@ -418,15 +418,52 @@ func coverageFrom(img image.Image) (cov []byte, w, h int) {
 	return luma, w, h
 }
 
-// CoverageFraction reports how much of a mask image would be coated, from 0
-// (nothing) to 1 (everything). The guide warns that large areas of gloss
-// varnish attract fingerprints and add days to production, so callers use
-// this to say so before an order goes out.
-func CoverageFraction(mask image.Image) float64 {
-	cov, w, h := coverageFrom(mask)
-	if w == 0 || h == 0 {
-		return 0
+// GlossCoverage reports how much of the artboard the varnish layer will
+// actually cover, from 0 (none) to 1 (all of it). The guide warns that large
+// areas of gloss varnish attract fingerprints and add days to production, so
+// callers say so before an order goes out.
+//
+// It builds the same coating Build does rather than measuring an image
+// directly, because for GlossArtwork the two do not agree. The coating
+// follows the artwork's alpha, and floods the side when the artwork is
+// opaque; reading that same artwork as though it were a mask would fall back
+// to luminance and report a dark design as barely varnished when in fact the
+// whole side is being coated. Asking the builder is the only way for the
+// number to describe the file that was written.
+func GlossCoverage(j Job) (float64, error) {
+	if j.Gloss == GlossNone {
+		return 0, nil
 	}
+
+	var (
+		alpha       []byte
+		transparent bool
+		w, h        int
+	)
+	if j.Image != nil {
+		b := j.Image.Bounds()
+		w, h = b.Dx(), b.Dy()
+		_, alpha, transparent = encodeCMYK(j.Image)
+	}
+
+	c, err := glossCoating(j.Gloss, j.GlossMask, alpha, transparent, w, h)
+	if err != nil {
+		return 0, err
+	}
+	switch {
+	case c == nil:
+		return 0, nil
+	case c.coverage == nil:
+		return 1, nil // a flood-filled rectangle covers the whole side
+	case len(c.coverage) == 0:
+		return 0, nil
+	}
+	return coverageFraction(c.coverage), nil
+}
+
+// coverageFraction averages a coverage map, where each sample is an 8-bit ink
+// tint.
+func coverageFraction(cov []byte) float64 {
 	var total uint64
 	for _, v := range cov {
 		total += uint64(v)

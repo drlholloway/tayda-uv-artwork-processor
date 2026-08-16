@@ -117,7 +117,9 @@ Two things the guide is firm about, which the tool repeats back to you:
 
 - Large areas of **gloss varnish** attract fingerprints and add days to
   production. Gloss matte handles large areas better. The tool prints the
-  coverage percentage and warns above 50%.
+  coverage percentage and warns above 50%. That percentage is measured from
+  the varnish layer it actually wrote, so `artwork` reports how much of the
+  side your artwork really covers rather than assuming all of it.
 - Whether the finish is gloss varnish or gloss matte is **not** in the PDF —
   you choose it in the Tayda Box Tool when saving the template.
 

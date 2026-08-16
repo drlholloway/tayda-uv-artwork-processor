@@ -255,6 +255,16 @@ from Rec. 601 luma otherwise (white coats, black leaves bare). The mask is
 scaled to the artboard independently of the artwork, so the two need not share
 pixel dimensions.
 
+`GlossCoverage` answers "how much of the side gets varnished", for the
+fingerprint warning the guide asks for. It builds the coating and measures
+that, rather than measuring an image, because the two disagree: `artwork` mode
+follows the artwork's alpha and floods when the artwork is opaque, so reading
+the artwork as if it were a mask would fall back to luma and call a dark
+full-side design 32% varnished. This is why there is no exported way to
+measure an image on its own — the previous one was reachable with the wrong
+image, and the caller assumed a full side whenever no mask was supplied, so
+`-gloss artwork` reported 100% and tripped the warning on every conversion.
+
 ### `internal/pdfinspect`
 
 A partial PDF reader behind `tayda-uv inspect`. It reports the artboard in mm,

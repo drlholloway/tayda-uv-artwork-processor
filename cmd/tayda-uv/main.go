@@ -349,7 +349,7 @@ func cmdConvert(args []string) error {
 	}
 
 	fmt.Printf("\nwrote %s — %g × %g mm, layers: %s\n", out, size.WidthMM, size.HeightMM, pdfgen.LayerSummary(white, gloss))
-	printGlossNotes(gloss, mask)
+	printGlossNotes(job)
 	fmt.Println("check it with Tayda's PDF Analyzer before ordering.")
 	return nil
 }
@@ -397,13 +397,21 @@ func glossMode(name, maskPath string) (pdfgen.GlossMode, error) {
 
 // printGlossNotes passes on the guide's warnings about varnish, which are
 // about the finished pedal rather than the file.
-func printGlossNotes(g pdfgen.GlossMode, mask *artwork.Image) {
-	if g == pdfgen.GlossNone {
+//
+// It takes the whole job because the coverage has to be measured from the
+// layer that was actually written. Assuming a full side unless a mask was
+// supplied is wrong for -gloss artwork, which varnishes only where the
+// artwork is opaque, and the fingerprint warning below is worth nothing if it
+// fires on every conversion.
+func printGlossNotes(j pdfgen.Job) {
+	if j.Gloss == pdfgen.GlossNone {
 		return
 	}
-	coverage := 1.0
-	if mask != nil {
-		coverage = pdfgen.CoverageFraction(mask)
+	coverage, err := pdfgen.GlossCoverage(j)
+	if err != nil {
+		// The PDF is already written and correct; only this note is missing.
+		fmt.Printf("gloss coverage could not be measured: %v\n", err)
+		return
 	}
 	fmt.Printf("gloss covers %.0f%% of the side.\n", coverage*100)
 	if coverage > 0.5 {
