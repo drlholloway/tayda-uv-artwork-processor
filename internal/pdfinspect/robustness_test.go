@@ -271,3 +271,59 @@ func closeTo(got, want float64) bool {
 	d := got - want
 	return d < 0.05 && d > -0.05
 }
+
+// The header need not be at byte 0. A file that picked up a preamble in
+// transit opens in every viewer, so refusing it outright is strictness with
+// no safety in it — and the object scan works from wherever the file starts.
+func TestHeaderNeedNotBeAtTheStart(t *testing.T) {
+	good := minimalPDF(t, "[0 0 158.74 307.56]")
+
+	for _, c := range []struct {
+		name    string
+		file    []byte
+		wantErr bool
+	}{
+		{"at the start", good, false},
+		{"after a preamble", append([]byte("HTTP/1.1 200 OK\r\nContent-Type: application/pdf\r\n\r\n"), good...), false},
+		// Padding with no header of its own, long enough to push the real one
+		// out of the window.
+		{"beyond the window", append(make([]byte, headerWindow+64), good...), true},
+		{"no header at all", []byte("just some bytes\n"), true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			r, err := Inspect(c.file)
+			if c.wantErr {
+				if err == nil {
+					t.Fatal("a file with no usable header was accepted")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("a readable PDF was refused: %v", err)
+			}
+			if !closeTo(r.WidthMM, 56) || !closeTo(r.HeightMM, 108.5) {
+				t.Errorf("artboard read as %.1f × %.1f mm, want 56 × 108.5", r.WidthMM, r.HeightMM)
+			}
+		})
+	}
+}
+
+// Anything before the header is not part of the document, so it must not be
+// able to contribute an object the report would then trust.
+func TestPreambleCannotContributeObjects(t *testing.T) {
+	preamble := []byte("1 0 obj\n<</Type/Catalog/Pages 9 0 R>>\nendobj\n")
+	b := append(preamble, minimalPDF(t, "[0 0 158.74 307.56]")...)
+
+	r, err := Inspect(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The real catalog inside the PDF must win; the decoy points at a page
+	// tree that does not exist.
+	if r.Pages != 1 {
+		t.Errorf("got %d pages, want the 1 the real document has", r.Pages)
+	}
+	if !closeTo(r.WidthMM, 56) {
+		t.Errorf("artboard read as %.1f mm wide, want 56", r.WidthMM)
+	}
+}

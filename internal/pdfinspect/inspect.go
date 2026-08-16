@@ -19,12 +19,18 @@ type Result struct {
 	WidthPt, HeightPt float64
 	WidthMM, HeightMM float64
 
-	// SpotColors are the Separation colorant names, in the order encountered,
-	// deduplicated. Case is preserved: the guide is explicit that RDG_WHITE
-	// and Rdg_White are not the same thing.
+	// SpotColors are the Separation colorant names, deduplicated and sorted.
+	//
+	// Sorted, not in the order encountered: objects are walked from a map, so
+	// there is no encounter order to report and any that looked meaningful
+	// would be an accident of iteration. PaintOrder is where ink order lives.
+	//
+	// Case is preserved: the guide is explicit that RDG_WHITE and Rdg_White
+	// are not the same thing.
 	SpotColors []string
 
-	// Layers are the optional content group names.
+	// Layers are the optional content group names, deduplicated and sorted,
+	// for the same reason.
 	Layers []string
 
 	// PaintOrder is the layer names in the order the first page's content
@@ -32,8 +38,10 @@ type Result struct {
 	// guide calls VERY IMPORTANT, read back from the finished file.
 	PaintOrder []string
 
-	// ColorSpaces are the device colour space names found anywhere in the
-	// file, e.g. DeviceCMYK, DeviceGray, DeviceRGB.
+	// ColorSpaces are the colour space names found anywhere in the file, e.g.
+	// DeviceCMYK, DeviceGray, DeviceRGB. An ICCBased space is reported with
+	// the space its profile declares — "ICCBased RGB" — since the array alone
+	// does not say, and RGB hiding inside one is the case that matters.
 	ColorSpaces []string
 
 	// Notes records what could not be determined and why. A non-empty Notes

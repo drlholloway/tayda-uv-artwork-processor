@@ -322,14 +322,33 @@ type document struct {
 
 var objHeader = regexp.MustCompile(`(?m)(?:^|[\r\n\t ])(\d+)[\t\n\f\r ]+(\d+)[\t\n\f\r ]+obj\b`)
 
+// headerWindow is how far into the file the %PDF- header may sit.
+//
+// The spec puts it at the start, but files that picked up an HTTP or mail
+// preamble in transit are common enough that real readers scan for it. A file
+// this tool alone refuses, while every viewer opens it, is not being careful
+// — it is being useless about the one job it has. A kilobyte is what readers
+// in practice allow, and it stays far too small for a stray "%PDF-" deep in
+// some unrelated file to be mistaken for a header.
+const headerWindow = 1024
+
 // load scans the whole file for "N G obj" headers rather than following the
 // cross-reference table. A damaged or unusual xref is exactly the kind of
 // thing worth still being able to look at, and every object is wanted here
 // anyway.
 func load(b []byte) (*document, error) {
-	if !bytes.HasPrefix(b, []byte("%PDF-")) {
-		return nil, fmt.Errorf("not a PDF: file does not start with %%PDF-")
+	window := b
+	if len(window) > headerWindow {
+		window = window[:headerWindow]
 	}
+	start := bytes.Index(window, []byte("%PDF-"))
+	if start < 0 {
+		return nil, fmt.Errorf("not a PDF: no %%PDF- header in the first %d bytes", headerWindow)
+	}
+	// Whatever sits before the header is not part of the document. Dropping it
+	// keeps a preamble from offering the object scan below anything to find.
+	b = b[start:]
+
 	d := &document{objs: map[int]any{}}
 	// Stream payloads are arbitrary bytes and can contain something that looks
 	// like an object header. Skip past each stream's data so that image pixels
