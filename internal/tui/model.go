@@ -17,6 +17,7 @@ import (
 	"github.com/drlholloway/tayda-uv-artwork-processor/internal/artwork"
 	"github.com/drlholloway/tayda-uv-artwork-processor/internal/enclosure"
 	"github.com/drlholloway/tayda-uv-artwork-processor/internal/pdfgen"
+	"github.com/drlholloway/tayda-uv-artwork-processor/internal/vector"
 )
 
 type screen int
@@ -100,7 +101,7 @@ func New() (Model, error) {
 	}
 
 	fp := filepicker.New()
-	fp.AllowedTypes = []string{".png", ".jpg", ".jpeg", ".gif"}
+	fp.AllowedTypes = []string{".png", ".jpg", ".jpeg", ".gif", ".svg"}
 	fp.CurrentDirectory = wd
 	fp.DirAllowed = false
 	fp.FileAllowed = true
@@ -283,6 +284,24 @@ func (m Model) updatePicker(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
+// load opens a chosen file, rasterizing an SVG for the side it is going on.
+//
+// There is no DPI setting here, only the default. The CLI exposes one because
+// a script may be feeding artwork to something other than a pedal face; at
+// this end of the tool the default already clears the guide's floor twice
+// over, and a knob whose right answer is always "leave it alone" is not worth
+// a screen.
+func load(path string, size enclosure.Size) (*artwork.Image, error) {
+	if !vector.IsVector(path) {
+		return artwork.Load(path)
+	}
+	img, err := vector.Load(path, size.WidthMM, size.HeightMM, vector.DefaultDPI)
+	if err != nil {
+		return nil, err
+	}
+	return &artwork.Image{Image: img, Path: path, Format: "svg"}, nil
+}
+
 // attach loads a chosen file and validates it against the side it is for, so
 // the table can show the verdict immediately.
 func (m *Model) attach(path string) {
@@ -291,7 +310,7 @@ func (m *Model) attach(path string) {
 		m.status = err.Error()
 		return
 	}
-	img, err := artwork.Load(path)
+	img, err := load(path, size)
 	if err != nil {
 		m.status = err.Error()
 		return

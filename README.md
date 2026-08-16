@@ -121,6 +121,34 @@ Two things the guide is firm about, which the tool repeats back to you:
 - Whether the finish is gloss varnish or gloss matte is **not** in the PDF —
   you choose it in the Tayda Box Tool when saving the template.
 
+### Artwork formats
+
+PNG, JPEG, GIF and SVG.
+
+An SVG has no pixel size of its own, so it is rendered for the side it is
+going on — at 600 DPI unless you pass `-dpi` — and everything after that
+treats it as an ordinary image. The PDF holds pixels, not paths.
+
+```sh
+tayda-uv convert -e 1590B -s A face.svg
+```
+
+Rendering keeps the SVG's own proportions, so artwork of the wrong shape is
+still reported as the wrong shape rather than quietly stretched to fit.
+
+Two things to know before exporting:
+
+- **Convert text to paths.** Text is not rendered. In Inkscape that is
+  *Path > Object to Path*; in Illustrator, *Type > Create Outlines*.
+- **Flatten clips, masks, filters, patterns and embedded images.** These are
+  not rendered either.
+
+Neither is silently dropped — an SVG using them is refused, with a message
+saying which. That is deliberate: Tayda prints the file exactly as submitted,
+so artwork that lost its lettering somewhere in this tool would not be caught
+by anything downstream. If flattening is awkward, export a PNG at the size
+`tayda-uv sides <enclosure>` lists.
+
 ### Validation
 
 `convert` validates before writing and refuses to produce a file that will not

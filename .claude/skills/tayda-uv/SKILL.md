@@ -35,6 +35,10 @@ PATH=/opt/homebrew/bin:$PATH go install ./cmd/tayda-uv
 Work one side at a time; each PDF holds a single artboard, which is what the
 Tayda Box Tool expects.
 
+Artwork may be PNG, JPEG, GIF or SVG. An SVG is rendered for the side it is
+going on, so its pixel count is not the user's problem — but its *shape* still
+is, and text must be converted to paths first. See "SVG artwork" below.
+
 **1. Get the target size.** The user's image has to already be the right shape;
 the tool scales to fill and will not crop for them.
 
@@ -74,6 +78,26 @@ which is the user's call.
 
 A gloss mask is held to a looser standard than artwork — low resolution on a
 mask is only a warning, since it is coverage rather than image detail.
+
+**SVG artwork.** An SVG is rasterized for the target side before anything else
+happens, at 600 DPI unless `-dpi` says otherwise, so it never fails on
+resolution. The PDF holds pixels, not paths — nothing is vectorized.
+
+Two things to tell the user, because both are refused rather than silently
+dropped:
+
+- **Text is not rendered.** Convert it to paths first: Inkscape's
+  *Path > Object to Path*, Illustrator's *Type > Create Outlines*.
+- **Clips, masks, filters, patterns and embedded `<image>` are not rendered.**
+  Flatten them, or export a PNG at the size `tayda-uv sides` lists.
+
+The refusal names which feature it found and what to do about it, so pass that
+message on rather than paraphrasing. Do not reach for `-force` here: `-force`
+overrides *validation*, not this, and cannot make an unsupported SVG render.
+
+Aspect drift is still reported for an SVG — the canvas keeps the SVG's own
+proportions rather than the artboard's, precisely so a wrong-shaped drawing
+still gets caught.
 
 **3. Convert.**
 

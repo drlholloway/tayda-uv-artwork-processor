@@ -71,6 +71,7 @@ internal/enclosure/  the artboard dimension table — ground truth
 internal/artwork/    decode + validate a source image against a side
 internal/pdfgen/     hand-rolled PDF emitter targeting the Tayda spec
 internal/pdfinspect/ partial PDF reader, for checking finished files
+internal/vector/     rasterizes SVG artwork before the pipeline sees it
 internal/tui/        Bubble Tea interactive front end
 ```
 
@@ -78,15 +79,25 @@ Data flows one way: `enclosure` supplies a `Size` in millimetres → `artwork`
 checks a decoded image against it → `pdfgen` renders the image onto an
 artboard of exactly that size. `enclosure` depends on nothing.
 
-`pdfinspect` sits outside that flow, reading finished PDFs rather than making
-them. It imports nothing from this repo on purpose — see below.
+`vector` sits in front of that flow rather than inside it: it turns an SVG
+into an `image.Image` and hands it over, so everything downstream is unchanged
+and cannot tell a rasterized SVG from a PNG.
 
-**Dependencies are limited to the TUI.** Bubble Tea, Bubbles and Lipgloss are
-used by `internal/tui` and nothing else; `enclosure`, `artwork` and `pdfgen`
-are stdlib-only and must stay that way. The README's motivation is that the
-existing web tool may vanish, so the parts that know how to produce a
-printable file should depend on nothing but the Go toolchain. Adding a module
-under those three packages needs a reason that outweighs this.
+`pdfinspect` sits outside the flow entirely, reading finished PDFs rather than
+making them. It imports nothing from this repo on purpose — see below.
+
+**Dependencies stay out of the printing path.** Bubble Tea, Bubbles and
+Lipgloss are used by `internal/tui`; oksvg and rasterx by `internal/vector`.
+`enclosure`, `artwork` and `pdfgen` are stdlib-only and must stay that way.
+The README's motivation is that the existing web tool may vanish, so the parts
+that know how to produce a printable file should depend on nothing but the Go
+toolchain. Adding a module under those three packages needs a reason that
+outweighs this.
+
+That is why `vector` is a separate package and not a few extra cases inside
+`artwork.Load`: putting it there would have made `artwork` depend on a
+third-party renderer transitively. The callers dispatch on the file extension
+instead, and the stdlib-only core keeps its guarantee.
 
 ### `cmd/tayda-uv`
 
@@ -152,6 +163,47 @@ It deliberately does **not** demand a specific pixel count. The artboard is
 physical; any pixel count that clears 300 DPI at the right aspect ratio is
 fine. Checked: effective DPI at final size ≥ 300, aspect drift ≤ 0.5%, and a
 portrait/landscape mismatch hint for artwork rotated 90°.
+
+### `internal/vector`
+
+Rasterizes SVG artwork (oksvg + rasterx) so the rest of the tool never sees a
+path. The PDF holds pixels; nothing is vectorized on the way through.
+
+That is a deliberate stopping point, not an unfinished one. Carrying paths
+into the PDF would mean translating SVG geometry, converting every sRGB fill
+to CMYK, and emitting gradients as shading dictionaries — and a bug in any of
+that is *silent*: a mis-set winding rule or a dropped clip renders fine on
+screen and comes back as a ruined enclosure, because Tayda prints the file as
+submitted and nobody looks at it first. Raster is dull and fails visibly.
+
+Two rules carry the design:
+
+- **The canvas is sized from the SVG, never from the artboard.** Rendering
+  straight to the artboard's proportions would stretch mis-shaped artwork
+  silently and, worse, would leave `artwork.Check` measuring a shape this
+  package had just manufactured — every file would report a perfect fit. The
+  canvas holds the SVG's own ratio, so the drift is still the artwork's and
+  still gets reported. When the two ratios already agree, `exactRatio` lands
+  on the artboard's proportions exactly (56 × 108.50 mm reduces to 16:31)
+  rather than rounding each axis independently, because a spurious 0.03%
+  drift warning on every conversion teaches the user to ignore the warning
+  that matters.
+- **Anything the renderer cannot draw is refused, not dropped.** oksvg handles
+  paths, shapes, groups, gradients and `use`; it silently omits `text`,
+  `image`, `clipPath`, `mask`, `filter`, `pattern` and friends. A PDF of the
+  wrong artwork is a perfectly valid PDF, so no downstream check would ever
+  catch it — `checkSupported` scans the XML first and errors with what to do
+  instead. Text means "convert to paths".
+
+An absurd `-dpi` is an error, but artwork wildly out of shape gets a capped
+canvas rather than an allocation failure: it is going to be refused for its
+shape, and that verdict is what the user needs to see.
+
+EPS and PDF input are not here and are a much larger job — EPS is PostScript,
+and PDF passthrough would mean rewriting every colour operator in an arbitrary
+input file to keep RGB out. A shell-out to Ghostscript was rejected as worse
+than a Go module by the README's own logic: an external binary the user must
+install is a sharper failure mode than a vendored dependency.
 
 ### `internal/pdfgen`
 
@@ -249,9 +301,17 @@ qlmanage -t -s 400 -o render out.pdf   # writes render/out.pdf.png
 
 Then look at the PNG: correct orientation, no vertical flip, colours intact.
 
+Render with `-gloss none` when checking colour. The `RDG_GLOSS` layer's
+`Separation` alternate is a preview value, so a full-coverage varnish washes
+the whole thumbnail out — correct in the file, misleading on screen.
+
 ## Not built yet
 
 - **`RDG_WHITE_2`** (advanced White → CMYK → White mode). The guide lists it as
   not yet available.
 - **"Print white layer twice"** add-on. Not represented in the file.
 - **Batch mode** for converting all six sides in one invocation.
+- **Vector artwork carried through to the PDF.** SVG is accepted but
+  rasterized at the door — see `internal/vector` for why that line is where it
+  is, and what carrying paths through would cost.
+- **EPS and PDF input.**

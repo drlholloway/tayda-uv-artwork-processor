@@ -49,10 +49,15 @@ var commands = []command{
 		synopsis: "validate -e <enclosure> -s <side> <image>",
 		summary:  "Check artwork against a side without writing anything.",
 		notes: "Exits 0 if the artwork is ready to print, 1 if it is not, so this is\n" +
-			"the command to use in a script.",
-		examples: []string{"tayda-uv validate -e 1590B -s A face.png"},
-		flagSet:  func() *flag.FlagSet { return validateFlags(&validateOpts{}) },
-		targets:  true,
+			"the command to use in a script.\n\n" +
+			"Reads PNG, JPEG, GIF and SVG. An SVG is rasterized for this side at\n" +
+			"-dpi first, so what gets checked is what would be printed.",
+		examples: []string{
+			"tayda-uv validate -e 1590B -s A face.png",
+			"tayda-uv validate -e 1590B -s A face.svg",
+		},
+		flagSet: func() *flag.FlagSet { return validateFlags(&validateOpts{}) },
+		targets: true,
 	},
 	{
 		name:     "convert",
@@ -60,6 +65,16 @@ var commands = []command{
 		summary:  "Write a print-ready PDF for one enclosure side.",
 		notes: `Run it once per side; each PDF holds a single artboard, which is what
 the Tayda Box Tool expects.
+
+Artwork may be PNG, JPEG, GIF or SVG.
+
+SVG artwork (-dpi). An SVG has no pixel count of its own, so it is rendered
+for the side it is going on, at -dpi, and everything after that treats it as
+an ordinary image; the PDF holds pixels, not paths. Rendering keeps the SVG's
+own proportions, so artwork of the wrong shape is still reported as such
+rather than being quietly stretched to fit. Text, embedded images, clips,
+masks and filters are not rendered and are refused rather than dropped —
+convert text to paths and flatten the rest before exporting.
 
 White ink (-white). CMYK has no white, so on a dark enclosure your colours
 sink into the powder coat without an undercoat beneath them:
@@ -84,6 +99,7 @@ when you upload. It is not recorded in the PDF.`,
 			"tayda-uv convert -e 1590B -s A -white full -o face.pdf face.png",
 			"tayda-uv convert -e 1590B -s A -gloss-mask logo-only.png face.png",
 			"tayda-uv convert -e 1590A -s Lid -white none back.png",
+			"tayda-uv convert -e 1590B -s A face.svg",
 		},
 		flagSet: func() *flag.FlagSet { return convertFlags(&convertOpts{}) },
 		targets: true,

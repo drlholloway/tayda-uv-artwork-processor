@@ -18,6 +18,7 @@ import (
 	"github.com/drlholloway/tayda-uv-artwork-processor/internal/enclosure"
 	"github.com/drlholloway/tayda-uv-artwork-processor/internal/pdfgen"
 	"github.com/drlholloway/tayda-uv-artwork-processor/internal/tui"
+	"github.com/drlholloway/tayda-uv-artwork-processor/internal/vector"
 )
 
 // usageError is a mistake in how the command was invoked, as opposed to a
@@ -189,13 +190,35 @@ func cmdSides(args []string) error {
 type validateOpts struct {
 	enclosure string
 	side      string
+	dpi       float64
 }
 
 func validateFlags(o *validateOpts) *flag.FlagSet {
 	fs := flag.NewFlagSet("validate", flag.ContinueOnError)
 	fs.StringVar(&o.enclosure, "e", "", "enclosure name, e.g. 1590B")
 	fs.StringVar(&o.side, "s", "", "side to print on")
+	fs.Float64Var(&o.dpi, "dpi", vector.DefaultDPI, "resolution to rasterize SVG artwork at; ignored for other formats")
 	return fs
+}
+
+// loadArtwork opens a source file, rasterizing vector formats first so
+// everything downstream sees an ordinary image.
+//
+// The artboard is needed here, not later, because an SVG has no inherent
+// pixel count: how many pixels it should become is a question only the
+// destination can answer.
+func loadArtwork(cmd, path string, size enclosure.Size, dpi float64) (*artwork.Image, error) {
+	if !vector.IsVector(path) {
+		return artwork.Load(path)
+	}
+	if dpi <= 0 {
+		return nil, &usageError{cmd: cmd, msg: fmt.Sprintf("-dpi must be positive, got %g", dpi)}
+	}
+	img, err := vector.Load(path, size.WidthMM, size.HeightMM, dpi)
+	if err != nil {
+		return nil, err
+	}
+	return &artwork.Image{Image: img, Path: path, Format: "svg"}, nil
 }
 
 func cmdValidate(args []string) error {
@@ -213,7 +236,7 @@ func cmdValidate(args []string) error {
 	if err != nil {
 		return err
 	}
-	img, err := artwork.Load(fs.Arg(0))
+	img, err := loadArtwork("validate", fs.Arg(0), size, o.dpi)
 	if err != nil {
 		return err
 	}
@@ -234,6 +257,7 @@ type convertOpts struct {
 	glossMask string
 	out       string
 	force     bool
+	dpi       float64
 }
 
 func convertFlags(o *convertOpts) *flag.FlagSet {
@@ -245,6 +269,7 @@ func convertFlags(o *convertOpts) *flag.FlagSet {
 	fs.StringVar(&o.glossMask, "gloss-mask", "", "image marking where varnish goes; implies -gloss mask")
 	fs.StringVar(&o.out, "o", "", "output PDF, default <image>-<enclosure>-<side>.pdf")
 	fs.BoolVar(&o.force, "force", false, "write the PDF even if validation finds problems")
+	fs.Float64Var(&o.dpi, "dpi", vector.DefaultDPI, "resolution to rasterize SVG artwork at; ignored for other formats")
 	return fs
 }
 
@@ -273,7 +298,7 @@ func cmdConvert(args []string) error {
 	}
 
 	in := fs.Arg(0)
-	img, err := artwork.Load(in)
+	img, err := loadArtwork("convert", in, size, o.dpi)
 	if err != nil {
 		return err
 	}
@@ -284,7 +309,7 @@ func cmdConvert(args []string) error {
 
 	var mask *artwork.Image
 	if gloss == pdfgen.GlossMask {
-		if mask, err = artwork.Load(o.glossMask); err != nil {
+		if mask, err = loadArtwork("convert", o.glossMask, size, o.dpi); err != nil {
 			return err
 		}
 		maskReport := artwork.CheckMask(mask, side, size)

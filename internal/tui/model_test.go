@@ -185,6 +185,48 @@ func TestAttachingArtworkValidatesIt(t *testing.T) {
 	}
 }
 
+// Anything the CLI accepts the interactive front end has to accept too, so an
+// SVG must attach and validate here exactly as a PNG does.
+func TestAttachingSVGArtwork(t *testing.T) {
+	dir := t.TempDir()
+
+	// A 1590B side A is 56 × 108.50 mm; a viewBox in those proportions is
+	// artwork drawn for the side.
+	good := filepath.Join(dir, "good.svg")
+	if err := os.WriteFile(good, []byte(
+		`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 56 108.5">`+
+			`<rect width="56" height="108.5" fill="#c82838"/></svg>`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Text is dropped by the renderer rather than drawn, so it is refused.
+	lettered := filepath.Join(dir, "lettered.svg")
+	if err := os.WriteFile(lettered, []byte(
+		`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 56 108.5">`+
+			`<text x="5" y="20">TREMOLO</text></svg>`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	m := pickEnclosure(t, newModel(t), "1590B")
+
+	m = attach(m, enclosure.SideA, pickArtwork, good)
+	st := m.sides[enclosure.SideA]
+	if st == nil || st.art == nil {
+		t.Fatal("an SVG drawn to the side's proportions did not attach")
+	}
+	if !st.artRep.OK() {
+		t.Errorf("SVG artwork drawn to size was flagged: %v", st.artRep.Problems)
+	}
+
+	m = attach(m, enclosure.SideB, pickArtwork, lettered)
+	if st := m.sides[enclosure.SideB]; st != nil && st.art != nil {
+		t.Error("an SVG whose text cannot be rendered was attached anyway")
+	}
+	if m.status == "" {
+		t.Error("refusing an SVG left no message explaining why")
+	}
+}
+
 func TestClearingASide(t *testing.T) {
 	dir := t.TempDir()
 	m := pickEnclosure(t, newModel(t), "1590B")
