@@ -265,6 +265,15 @@ measure an image on its own — the previous one was reachable with the wrong
 image, and the caller assumed a full side whenever no mask was supplied, so
 `-gloss artwork` reported 100% and tripped the warning on every conversion.
 
+`WriteFile` is how both front ends write a PDF, and `Build` streams nothing —
+the whole document is buffered and written in one call at the end. Opening the
+destination directly would therefore truncate it before a byte was emitted, so
+a failed convert left a zero-length PDF named like a finished artboard. It
+renders to a dot-prefixed temporary file in the destination's own directory
+and renames it into place, so either the file appears complete or it does not
+appear. Use `Build` only when the bytes are going somewhere that is not a
+file.
+
 ### `internal/pdfinspect`
 
 A partial PDF reader behind `tayda-uv inspect`. It reports the artboard in mm,

@@ -403,13 +403,6 @@ func (m Model) convert() tea.Cmd {
 				out = append(out, r)
 				continue
 			}
-			f, err := os.Create(r.path)
-			if err != nil {
-				r.err = err
-				out = append(out, r)
-				continue
-			}
-
 			build := pdfgen.Job{
 				Image: j.state.art, WidthMM: size.WidthMM, HeightMM: size.HeightMM,
 				White: white, Gloss: g,
@@ -417,10 +410,10 @@ func (m Model) convert() tea.Cmd {
 			if j.state.mask != nil {
 				build.GlossMask = j.state.mask
 			}
-			r.err = pdfgen.Build(build, f)
-			if cerr := f.Close(); cerr != nil && r.err == nil {
-				r.err = cerr
-			}
+			// A side that fails leaves no file at all, so the ✗ in the
+			// results table cannot be contradicted by a broken PDF sitting in
+			// the output directory alongside the ones that worked.
+			r.err = pdfgen.WriteFile(build, r.path)
 			out = append(out, r)
 		}
 		return convertedMsg{out}

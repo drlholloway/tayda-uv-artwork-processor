@@ -326,14 +326,6 @@ func cmdConvert(args []string) error {
 		out = fmt.Sprintf("%s-%s-%s.pdf", base, strings.ToLower(o.enclosure), strings.ToLower(string(side)))
 	}
 
-	f, err := os.Create(out)
-	if err != nil {
-		return err
-	}
-	// Close explicitly so a write error on flush is not swallowed, but keep a
-	// deferred close for the error paths.
-	defer f.Close()
-
 	job := pdfgen.Job{
 		Image: img, WidthMM: size.WidthMM, HeightMM: size.HeightMM,
 		White: white, Gloss: gloss,
@@ -341,10 +333,7 @@ func cmdConvert(args []string) error {
 	if mask != nil {
 		job.GlossMask = mask
 	}
-	if err := pdfgen.Build(job, f); err != nil {
-		return err
-	}
-	if err := f.Close(); err != nil {
+	if err := pdfgen.WriteFile(job, out); err != nil {
 		return err
 	}
 
