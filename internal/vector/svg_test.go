@@ -164,11 +164,12 @@ func TestUnsupportedFeaturesAreRefused(t *testing.T) {
 	for _, c := range []struct{ name, body, wantMsg string }{
 		{"text", `<text x="10" y="10">TREMOLO</text>`, "convert text to paths"},
 		{"embedded image", `<image href="a.png" width="10" height="10"/>`, "embedded raster"},
-		{"clipPath element", `<defs><clipPath id="c"><rect width="5" height="5"/></clipPath></defs>`, "clipping is not applied"},
 		{"clip-path attribute", `<rect width="5" height="5" clip-path="url(#c)"/>`, "clipping is not applied"},
 		{"filter attribute", `<rect width="5" height="5" filter="url(#f)"/>`, "filter effects"},
 		{"mask attribute", `<rect width="5" height="5" mask="url(#m)"/>`, "masking is not applied"},
-		{"pattern", `<defs><pattern id="p"/></defs>`, "pattern fills"},
+		{"marker attribute", `<path d="M0 0 L9 9" marker-end="url(#m)"/>`, "markers are not rendered"},
+		{"pattern used as a fill", `<defs><pattern id="p"/></defs><rect width="5" height="5" fill="url(#p)"/>`, "pattern fills"},
+		{"symbol placed by use", `<defs><symbol id="s"><rect width="5" height="5"/></symbol></defs><use href="#s"/>`, "symbols are not rendered"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			p := write(t, svgFor(100, 100, c.body))
@@ -193,6 +194,25 @@ func TestRepeatedComplaintsAreReportedOnce(t *testing.T) {
 	}
 	if n := strings.Count(err.Error(), "convert text to paths"); n != 1 {
 		t.Errorf("text complaint appears %d times, want 1:\n%v", n, err)
+	}
+}
+
+// A definition nothing points at changes nothing. Editors leave orphans
+// behind constantly, and there is no -force for this refusal, so flagging one
+// rejects a file that would rasterize exactly as drawn.
+func TestUnreferencedDefinitionsAreNotRefused(t *testing.T) {
+	for _, c := range []struct{ name, body string }{
+		{"orphan clipPath", `<defs><clipPath id="c"><rect width="5" height="5"/></clipPath></defs>`},
+		{"orphan pattern", `<defs><pattern id="p"/></defs>`},
+		{"orphan marker", `<defs><marker id="m"><path d="M0 0 L2 2"/></marker></defs>`},
+		{"a library of them", `<defs><clipPath id="c1"/><mask id="m1"/><filter id="f1"/></defs>`},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			p := write(t, svgFor(100, 100, c.body+filled))
+			if _, err := Load(p, 50, 50, 300); err != nil {
+				t.Errorf("a definition nothing references was refused:\n%v", err)
+			}
+		})
 	}
 }
 
@@ -314,4 +334,68 @@ func containsAny(msgs []string, sub string) bool {
 		}
 	}
 	return false
+}
+
+// A viewBox need not start at 0 0. Illustrator writes an artboard out at
+// whatever offset it sat at in the document, and the artwork must still land
+// on the artboard rather than shifted by the origin.
+func TestViewBoxOriginDoesNotShiftTheArtwork(t *testing.T) {
+	size := sideSize(t, "1590B", enclosure.SideA)
+
+	p := write(t, fmt.Sprintf(
+		`<svg xmlns="http://www.w3.org/2000/svg" viewBox="10 20 %g %g">`+
+			`<rect x="10" y="20" width="%g" height="%g" fill="#c82838"/></svg>`,
+		size.WidthMM, size.HeightMM, size.WidthMM, size.HeightMM))
+
+	img, err := Load(p, size.WidthMM, size.HeightMM, DefaultDPI)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := img.Bounds()
+
+	// The rect fills the viewBox exactly, so every corner must be painted.
+	for _, c := range []struct {
+		name string
+		x, y int
+	}{
+		{"top-left", b.Min.X, b.Min.Y},
+		{"top-right", b.Max.X - 1, b.Min.Y},
+		{"bottom-left", b.Min.X, b.Max.Y - 1},
+		{"bottom-right", b.Max.X - 1, b.Max.Y - 1},
+	} {
+		if _, _, _, a := img.At(c.x, c.y).RGBA(); a == 0 {
+			t.Errorf("%s corner is bare: artwork shifted by the viewBox origin", c.name)
+		}
+	}
+}
+
+func TestReferencedIDs(t *testing.T) {
+	for _, c := range []struct {
+		in   string
+		want []string
+	}{
+		{"url(#p)", []string{"p"}},
+		{`url("#p")`, []string{"p"}},
+		{"url('#p')", []string{"p"}},
+		{"#s", []string{"s"}}, // an href
+		{"url(#a) url(#b)", []string{"a", "b"}},
+		{"none", nil},
+		{"", nil},
+		{"url(other.svg#p)", nil}, // not a fragment in this document
+		// A colour is not a reference. Read as one, "#c02020" points at an
+		// element called "c" and refuses every document defining one.
+		{"#c02020", []string{"c02020"}},
+	} {
+		got := referencedIDs(c.in)
+		if len(got) != len(c.want) {
+			t.Errorf("referencedIDs(%q) = %q, want %q", c.in, got, c.want)
+			continue
+		}
+		for i := range got {
+			if got[i] != c.want[i] {
+				t.Errorf("referencedIDs(%q) = %q, want %q", c.in, got, c.want)
+				break
+			}
+		}
+	}
 }

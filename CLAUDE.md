@@ -195,6 +195,23 @@ Two rules carry the design:
   catch it — `checkSupported` scans the XML first and errors with what to do
   instead. Text means "convert to paths".
 
+  It separates *uses* from *definitions*. An element that draws (`text`,
+  `image`) is a problem on sight; one that only changes how others draw
+  (`clipPath`, `pattern`, `marker`) counts only once something references it,
+  because editors leave orphan defs behind constantly and refusing those
+  rejects files that would rasterize exactly as drawn — with no `-force` to
+  override it. References are read as `url(#id)` and `#id` specifically, not
+  as `#id` appearing anywhere: under a substring test the colour `#c02020`
+  points at an element called `c` and refuses most documents that define one.
+
+The transform is built by hand rather than by `icon.SetTarget`, which composes
+its translate after the scale and so subtracts the viewBox origin in device
+pixels instead of user units. A `viewBox` not starting at `0 0` — what
+Illustrator writes for an artboard at an offset — otherwise lands shifted by
+nearly the whole origin and cropped, while the canvas stays the right size and
+shape so `artwork.Check` calls it clean. Exactly the silent divergence this
+package exists to prevent, and only visible on the enclosure.
+
 An absurd `-dpi` is an error, but artwork wildly out of shape gets a capped
 canvas rather than an allocation failure: it is going to be refused for its
 shape, and that verdict is what the user needs to see.

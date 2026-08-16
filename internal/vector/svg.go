@@ -107,7 +107,18 @@ func Load(path string, targetWidthMM, targetHeightMM, dpi float64) (image.Image,
 	// and -gloss artwork behave sensibly on an SVG with no background.
 	img := image.NewRGBA(image.Rect(0, 0, w, h))
 	scanner := rasterx.NewScannerGV(w, h, img, img.Bounds())
-	icon.SetTarget(0, 0, float64(w), float64(h))
+
+	// The transform is built here rather than by icon.SetTarget, which
+	// composes its translate *after* the scale and so subtracts the viewBox
+	// origin in device pixels instead of user units. A viewBox that does not
+	// start at 0 0 — what Illustrator writes for an artboard sitting at an
+	// offset — would land shifted by very nearly the whole origin and be
+	// cropped at the far edges. Nothing downstream would notice: the canvas
+	// is the right size and the right shape, so artwork.Check reports it
+	// clean and only the enclosure comes back wrong.
+	icon.Transform = rasterx.Identity.
+		Scale(float64(w)/icon.ViewBox.W, float64(h)/icon.ViewBox.H).
+		Translate(-icon.ViewBox.X, -icon.ViewBox.Y)
 	icon.Draw(rasterx.NewDasher(w, h, scanner), 1.0)
 	return img, nil
 }
@@ -146,10 +157,15 @@ func pixelSize(viewW, viewH, targetWidthMM, targetHeightMM, dpi float64) (w, h i
 		// one. Better to render something reportable than to answer a wrong
 		// aspect ratio with an out-of-memory error.
 		//
-		// The cap can only take back what the mismatch added: the artboard's
-		// own pixel count was checked against it above, so a canvas capped
-		// here is still at least as large as the requested resolution asked
-		// for on the axis that matters.
+		// The capped canvas holds the aspect ratio but not necessarily the
+		// resolution: scaling to fit an area budget preserves whichever axis
+		// the mismatch stretched, and the other can fall under the DPI floor.
+		// Artwork reaching this branch is already off by more than the aspect
+		// tolerance, so it is refused for its shape whatever the resolution
+		// says; a second complaint about DPI is noise on a verdict that has
+		// already been reached, not a wrong answer. Anything mild enough to
+		// still be printable never gets here — the artboard's own pixel count
+		// was checked against the ceiling above.
 		if area := pxW * pxH; area > maxPixels {
 			s := math.Sqrt(maxPixels / area)
 			pxW, pxH = math.Floor(pxW*s), math.Floor(pxH*s)
@@ -217,8 +233,7 @@ func canvas(w, h int, dpi float64) (int, int, error) {
 	return w, h, nil
 }
 
-// unsupported lists the SVG constructs the rasterizer does not implement,
-// mapped to what the user should do instead.
+// What the renderer cannot draw, and what to do about it instead.
 //
 // Every one of these changes what ends up on the enclosure: text and images
 // simply do not appear, and a clip, mask or filter that is not applied shows
@@ -227,28 +242,86 @@ func canvas(w, h int, dpi float64) (int, int, error) {
 // there is no downstream check that would catch it, because a PDF of the
 // wrong artwork is a perfectly valid PDF.
 //
-// Entries share a message where the advice is the same, and the messages are
-// deduplicated, so a document full of <text> and <tspan> reports one line.
-var unsupported = map[string]string{
-	"text":     "text is not rendered: convert text to paths before exporting (in Inkscape, Path > Object to Path)",
-	"tspan":    "text is not rendered: convert text to paths before exporting (in Inkscape, Path > Object to Path)",
-	"textPath": "text is not rendered: convert text to paths before exporting (in Inkscape, Path > Object to Path)",
-	"image":    "embedded raster images are not rendered: export the whole design as a PNG instead",
-	"filter":   "filter effects are not rendered, so the artwork would print unfiltered: flatten them before exporting",
-	"clipPath": "clipping is not applied, so clipped artwork would print in full: flatten it before exporting",
-	"mask":     "masking is not applied, so masked artwork would print in full: flatten it before exporting",
-	"pattern":  "pattern fills are not rendered: flatten them before exporting",
-	"marker":   "markers are not rendered, so arrowheads and line ends would be missing: convert them to paths",
-	"symbol":   "symbol definitions are not rendered: flatten them before exporting",
-	"switch":   "conditional <switch> content is not evaluated: flatten it before exporting",
+// Constructs share a message where the advice is the same, and the messages
+// are deduplicated, so a document full of <text> and <tspan> reports one line.
+const (
+	msgText    = "text is not rendered: convert text to paths before exporting (in Inkscape, Path > Object to Path)"
+	msgImage   = "embedded raster images are not rendered: export the whole design as a PNG instead"
+	msgClip    = "clipping is not applied, so clipped artwork would print in full: flatten it before exporting"
+	msgMask    = "masking is not applied, so masked artwork would print in full: flatten it before exporting"
+	msgFilter  = "filter effects are not rendered, so the artwork would print unfiltered: flatten them before exporting"
+	msgPattern = "pattern fills are not rendered: flatten them before exporting"
+	msgMarker  = "markers are not rendered, so arrowheads and line ends would be missing: convert them to paths"
+	msgSymbol  = "symbols are not rendered: flatten them before exporting"
+	msgSwitch  = "conditional content is not evaluated: flatten it before exporting"
+)
+
+// unsupportedUses are elements that draw. Their presence is the problem,
+// because whatever they would have drawn is missing from the raster.
+var unsupportedUses = map[string]string{
+	"text":          msgText,
+	"tspan":         msgText,
+	"textPath":      msgText,
+	"image":         msgImage,
+	"switch":        msgSwitch,
+	"foreignObject": msgSwitch,
 }
 
-// unsupportedAttrs catches a clip, mask or filter applied by reference when
-// the definition itself sits somewhere this scan would otherwise pass over.
+// unsupportedDefs are elements that only change how *other* elements draw.
+//
+// One nothing refers to changes nothing, and editors leave orphans behind
+// constantly — an imported clip, a document's marker library — so refusing on
+// sight rejects files that would rasterize perfectly, with no -force to
+// override it. These count only once something points at them.
+var unsupportedDefs = map[string]string{
+	"clipPath": msgClip,
+	"mask":     msgMask,
+	"filter":   msgFilter,
+	"pattern":  msgPattern,
+	"marker":   msgMarker,
+	"symbol":   msgSymbol,
+}
+
+// unsupportedAttrs apply an effect by reference. These are uses wherever the
+// definition happens to live, including a document this scan never sees.
 var unsupportedAttrs = map[string]string{
-	"clip-path": unsupported["clipPath"],
-	"mask":      unsupported["mask"],
-	"filter":    unsupported["filter"],
+	"clip-path":    msgClip,
+	"mask":         msgMask,
+	"filter":       msgFilter,
+	"marker-start": msgMarker,
+	"marker-mid":   msgMarker,
+	"marker-end":   msgMarker,
+}
+
+// referencedIDs pulls the fragment identifiers out of an attribute value: the
+// url(#id) form that fill, clip-path and the marker properties use, and the
+// bare #id an href carries.
+//
+// Both forms are matched exactly rather than looking for "#id" anywhere in
+// the value, because a hex colour is indistinguishable from a fragment under
+// a substring test — fill="#c02020" reads as a reference to an element called
+// "c", which is enough to refuse most documents that define one.
+func referencedIDs(v string) []string {
+	var ids []string
+	if strings.HasPrefix(v, "#") {
+		ids = append(ids, v[1:])
+	}
+	for rest := v; ; {
+		i := strings.Index(rest, "url(")
+		if i < 0 {
+			return ids
+		}
+		rest = rest[i+len("url("):]
+		j := strings.IndexByte(rest, ')')
+		if j < 0 {
+			return ids
+		}
+		// url("#p") and url('#p') are as legal as url(#p).
+		if target := strings.Trim(strings.TrimSpace(rest[:j]), `'"`); strings.HasPrefix(target, "#") {
+			ids = append(ids, target[1:])
+		}
+		rest = rest[j+1:]
+	}
 }
 
 // checkSupported scans an SVG for constructs that would go missing.
@@ -258,6 +331,9 @@ func checkSupported(data []byte) error {
 	dec.Strict = true
 
 	seen := map[string]bool{}
+	defined := map[string]string{} // id of an unsupported definition -> message
+	referenced := map[string]bool{}
+
 	for {
 		tok, err := dec.Token()
 		if err == io.EOF {
@@ -270,17 +346,37 @@ func checkSupported(data []byte) error {
 		if !ok {
 			continue
 		}
-		if msg, bad := unsupported[se.Name.Local]; bad {
+
+		if msg, bad := unsupportedUses[se.Name.Local]; bad {
 			seen[msg] = true
 		}
+		defMsg, isDef := unsupportedDefs[se.Name.Local]
+
 		for _, a := range se.Attr {
-			// "none" is how a document turns an inherited clip or filter back
-			// off; it removes nothing.
-			if msg, bad := unsupportedAttrs[a.Name.Local]; bad && strings.TrimSpace(a.Value) != "none" {
+			v := strings.TrimSpace(a.Value)
+			if isDef && a.Name.Local == "id" {
+				defined[v] = defMsg
+				continue
+			}
+			// "none" is how a document turns an inherited effect back off; it
+			// removes nothing and must not be read as applying one.
+			if msg, bad := unsupportedAttrs[a.Name.Local]; bad && v != "" && v != "none" {
 				seen[msg] = true
+			}
+			for _, id := range referencedIDs(v) {
+				referenced[id] = true
 			}
 		}
 	}
+
+	// A definition matters once something points at it — fill="url(#p)" at a
+	// pattern, href="#s" at a symbol.
+	for id, msg := range defined {
+		if id != "" && referenced[id] {
+			seen[msg] = true
+		}
+	}
+
 	if len(seen) == 0 {
 		return nil
 	}

@@ -443,7 +443,14 @@ func GlossCoverage(j Job) (float64, error) {
 	if j.Image != nil {
 		b := j.Image.Bounds()
 		w, h = b.Dx(), b.Dy()
-		_, alpha, transparent = encodeCMYK(j.Image)
+		// Only GlossArtwork reads the alpha: GlossFull floods without looking
+		// and GlossMask takes its coverage from the mask. Converting for the
+		// other two would repeat the whole CMYK pass Build has just done and
+		// throw away a buffer four times the size of the image — up to a
+		// quarter of a gigabyte on a large artboard — to reach a constant.
+		if j.Gloss == GlossArtwork {
+			_, alpha, transparent = encodeCMYK(j.Image)
+		}
 	}
 
 	c, err := glossCoating(j.Gloss, j.GlossMask, alpha, transparent, w, h)
