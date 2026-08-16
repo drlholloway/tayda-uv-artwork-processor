@@ -274,6 +274,21 @@ and renames it into place, so either the file appears complete or it does not
 appear. Use `Build` only when the bytes are going somewhere that is not a
 file.
 
+Replacing a file rather than opening it changes three things that all had to
+be put back. A symlink is resolved first, because `os.Create` followed it and
+someone pointing the output at a link into a synced folder meant the PDF to
+land on the far side. A destination that is not a regular file cannot be
+renamed over at all, so it is written straight through. And the finished file
+takes the mode the destination already had — `os.Create` left an existing
+file's permissions alone, so replacing one must not widen them; 0644 applies
+only when nothing was there, since `CreateTemp` opens at 0600.
+
+Every failure is reported against the destination via `destError`, including
+the ones that surface from inside the write. The temporary file is gone by
+then — the cleanup defer runs first — so an error naming it would send the
+user after a file that exists nowhere. `os.Rename` reports a `*os.LinkError`
+rather than a `*fs.PathError`, and both carry the temporary path.
+
 ### `internal/pdfinspect`
 
 A partial PDF reader behind `tayda-uv inspect`. It reports the artboard in mm,
