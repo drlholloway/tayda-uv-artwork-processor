@@ -15,3 +15,4 @@
 - [ ] A new flag or subcommand is in the `commands` table in `cmd/tayda-uv/help.go`; a new TUI feature has a matching flag
 - [ ] Dimension changes cite the Tayda guide's version and date
 - [ ] The wiki page showing any changed flag, key, size or message is updated, or this PR says it needs to be
+- [ ] `CHANGELOG.md` has a line under **Unreleased** if users would notice this

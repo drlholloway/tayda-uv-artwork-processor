@@ -22,7 +22,14 @@ tayda-uv enclosures
 tayda-uv sides 1590B
 tayda-uv validate -e 1590B -s A face.png
 tayda-uv convert  -e 1590B -s A -white full -o face.pdf face.png
+tayda-uv version
 ```
+
+Releases: `CHANGELOG.md` keeps an **Unreleased** section; tagging `vX.Y.Z`
+runs `.github/workflows/release.yml`, which builds every platform with
+`-X main.version` set from the tag and publishes that changelog section as
+the release notes. The version command falls back to the toolchain's build
+info, so a clone build still identifies its commit.
 
 ## The wiki
 

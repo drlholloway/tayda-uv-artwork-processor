@@ -6,8 +6,8 @@ body:
     id: version
     attributes:
       label: Version
-      description: The commit you built from (`git rev-parse --short HEAD`), or the release you downloaded.
-      placeholder: "0fa1b06"
+      description: What `tayda-uv version` prints.
+      placeholder: "tayda-uv 1.0.0 darwin/arm64"
     validations:
       required: true
   - type: dropdown

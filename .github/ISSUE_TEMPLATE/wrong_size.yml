@@ -10,7 +10,7 @@ body:
     id: version
     attributes:
       label: Version
-      description: The commit you built from (`git rev-parse --short HEAD`), or the release you downloaded.
+      description: What `tayda-uv version` prints.
     validations:
       required: true
   - type: input

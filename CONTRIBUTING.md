@@ -64,7 +64,17 @@ dimension table, `internal/artwork` validates an image against a side,
    the TUI needs a flag too, so the CLI can always do what the TUI can.
 8. Update the wiki page that shows the changed flag, key, size or message, or
    say in the PR that it needs updating.
-9. Fill in the PR template.
+9. Add a line under **Unreleased** in `CHANGELOG.md` if users would notice
+   the change.
+10. Fill in the PR template.
+
+## Releases
+
+Maintainer only. Move the **Unreleased** section of `CHANGELOG.md` under a
+new `## X.Y.Z — date` heading, commit, then tag that commit `vX.Y.Z` and
+push the tag. The release workflow runs the tests, builds macOS, Linux and
+Windows archives with the version baked in, and publishes a GitHub Release
+whose notes are that changelog section.
 
 ## Style
 

@@ -2,8 +2,10 @@
 
 ## Supported versions
 
-There are no packaged releases yet; the tip of `main` is the supported version.
-Rebuild from a fresh clone before reporting.
+Only the latest release on the
+[Releases page](https://github.com/drlholloway/tayda-uv-artwork-processor/releases)
+receives fixes. Upgrade before reporting; `tayda-uv version` says what you
+have.
 
 ## What counts
 
@@ -34,7 +36,7 @@ https://github.com/drlholloway/tayda-uv-artwork-processor/security/advisories/ne
 
 Include the Go version, platform, what you observed and how to reproduce it,
 with the file if you can share it. You will get an acknowledgement within a
-week. Fixes land on `main` with a credit in the commit message unless you
+week. Fixes ship as a new release with a credit in the changelog unless you
 prefer to stay anonymous.
 
 ## Dependencies

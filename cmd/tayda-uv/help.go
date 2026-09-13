@@ -135,6 +135,14 @@ something, and a small first order stays the way to be sure.`,
 		flagSet: func() *flag.FlagSet { return inspectFlags(&inspectOpts{}) },
 		targets: true,
 	},
+	{
+		name:     "version",
+		synopsis: "version",
+		summary:  "Print the version, for bug reports.",
+		notes: "A release build prints its release number. A build from a clone\n" +
+			"prints the commit it was made from.",
+		examples: []string{"tayda-uv version"},
+	},
 }
 
 func lookupCommand(name string) (command, bool) {

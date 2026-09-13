@@ -77,6 +77,8 @@ func main() {
 		err = cmdConvert(args)
 	case "inspect":
 		err = cmdInspect(args)
+	case "version":
+		err = cmdVersion(args)
 	default:
 		fmt.Fprintf(os.Stderr, "error: unknown command %q\n\n", name)
 		printUsage(os.Stderr)

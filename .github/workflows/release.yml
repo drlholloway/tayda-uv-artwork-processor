@@ -1,0 +1,88 @@
+name: release
+# Tag a commit `vX.Y.Z` to build tayda-uv for macOS, Linux and Windows and
+# attach the archives, with a checksum file, to a GitHub Release. The
+# release notes are the matching section of CHANGELOG.md.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - { goos: darwin,  goarch: arm64, name: macos-arm64 }
+          - { goos: darwin,  goarch: amd64, name: macos-x64 }
+          - { goos: linux,   goarch: amd64, name: linux-x64 }
+          - { goos: linux,   goarch: arm64, name: linux-arm64 }
+          - { goos: windows, goarch: amd64, name: windows-x64 }
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - run: go test ./...
+      - name: build
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        run: |
+          V="${GITHUB_REF_NAME#v}"
+          STAGE="tayda-uv-${{ matrix.name }}-$V"
+          mkdir -p "$STAGE"
+          EXT=""; [ "$GOOS" = windows ] && EXT=".exe"
+          go build -trimpath -ldflags "-s -w -X main.version=$V" -o "$STAGE/tayda-uv$EXT" ./cmd/tayda-uv
+          cp README.md LICENSE CHANGELOG.md "$STAGE/"
+          if [ "$GOOS" = windows ]; then
+            zip -r "$STAGE.zip" "$STAGE"
+          else
+            tar czf "$STAGE.tar.gz" "$STAGE"
+          fi
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.name }}
+          path: |
+            tayda-uv-*.tar.gz
+            tayda-uv-*.zip
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+      - name: checksums
+        run: cd dist && sha256sum * > SHA256SUMS && cat SHA256SUMS
+      - name: release notes from CHANGELOG
+        run: |
+          V="${GITHUB_REF_NAME#v}"
+          # Section for this version: from "## V" up to the next "## " heading.
+          awk -v v="$V" '
+            $0 ~ "^## "v"( |$)" {on=1; next}
+            on && /^## / {exit}
+            on {print}
+          ' CHANGELOG.md > notes.md
+          if [ ! -s notes.md ]; then echo "_No changelog entry for $V._" > notes.md; fi
+          cat >> notes.md <<'EOF'
+
+          ---
+          **Install**: download the archive for your machine, extract it, and put `tayda-uv` somewhere on your PATH (`/usr/local/bin`, `~/bin`, `~/go/bin`). macOS: the binary is not notarized, so on first run macOS may refuse it; `xattr -d com.apple.quarantine tayda-uv` clears that, or open System Settings → Privacy & Security and click **Open Anyway**. Verify a download against `SHA256SUMS` with `shasum -a 256 -c SHA256SUMS`.
+
+          Or build from source with `go install github.com/drlholloway/tayda-uv-artwork-processor/cmd/tayda-uv@latest`.
+
+          Run `tayda-uv version` to confirm which build you have. Help and how-tos are on the [wiki](https://github.com/drlholloway/tayda-uv-artwork-processor/wiki). Full history: [CHANGELOG.md](https://github.com/drlholloway/tayda-uv-artwork-processor/blob/main/CHANGELOG.md)
+          EOF
+      - uses: softprops/action-gh-release@v3
+        with:
+          name: tayda-uv ${{ github.ref_name }}
+          body_path: notes.md
+          files: dist/*

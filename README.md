@@ -14,11 +14,33 @@ covers installation, first steps, preparing artwork, every enclosure's artboard
 sizes, white and gloss, the command line, checking the output and
 troubleshooting.
 
-## Install
+## Download
+
+Ready-made builds are on the
+[Releases page](https://github.com/drlholloway/tayda-uv-artwork-processor/releases);
+what changed in each version is in [CHANGELOG.md](CHANGELOG.md). Download the
+archive for your machine, extract it, and put `tayda-uv` on your PATH.
+
+| Platform | File |
+|---|---|
+| macOS, Apple silicon | `tayda-uv-macos-arm64-<version>.tar.gz` |
+| macOS, Intel | `tayda-uv-macos-x64-<version>.tar.gz` |
+| Linux x86-64 | `tayda-uv-linux-x64-<version>.tar.gz` |
+| Linux arm64 | `tayda-uv-linux-arm64-<version>.tar.gz` |
+| Windows x86-64 | `tayda-uv-windows-x64-<version>.zip` |
+
+The macOS binary is not notarized. If macOS refuses to run it, clear the
+quarantine flag with `xattr -d com.apple.quarantine tayda-uv`, or use
+System Settings → Privacy & Security → **Open Anyway**.
+
+## Install from source
 
 ```sh
-go build -o tayda-uv ./cmd/tayda-uv
+go install github.com/drlholloway/tayda-uv-artwork-processor/cmd/tayda-uv@latest
 ```
+
+Or from a clone, `go build -o tayda-uv ./cmd/tayda-uv`. Either way,
+`tayda-uv version` says which build you have.
 
 ## Interactive use
 
