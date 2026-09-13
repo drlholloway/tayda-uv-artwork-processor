@@ -24,6 +24,15 @@ tayda-uv validate -e 1590B -s A face.png
 tayda-uv convert  -e 1590B -s A -white full -o face.pdf face.png
 ```
 
+## The wiki
+
+User documentation lives in the GitHub wiki
+(<https://github.com/drlholloway/tayda-uv-artwork-processor/wiki>, cloned
+separately as `tayda-uv-artwork-processor.wiki.git`). When a flag, key, size
+or message changes, update the wiki page that shows it or say that it needs
+updating. `Enclosure-Sizes` and `Command-Line` are transcriptions of
+`tayda-uv sides` and `tayda-uv help` output.
+
 ## The spec is the contract
 
 Everything in this repo exists to satisfy the **Tayda UV Printing Service File

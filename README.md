@@ -9,6 +9,11 @@ There exists a tool already that handles the front face creation of the needed p
 
 The tool verifies the sizes of the image is correct for the enclosure and ensures that the output is correct for tayda.
 
+**Help and how-tos:** the [Wiki](https://github.com/drlholloway/tayda-uv-artwork-processor/wiki)
+covers installation, first steps, preparing artwork, every enclosure's artboard
+sizes, white and gloss, the command line, checking the output and
+troubleshooting.
+
 ## Install
 
 ```sh
@@ -211,6 +216,12 @@ is the point, since your artwork lives elsewhere:
 go install ./cmd/tayda-uv          # puts tayda-uv on PATH via ~/go/bin
 ln -s "$PWD/.claude/skills/tayda-uv" ~/.claude/skills/tayda-uv
 ```
+
+## Support the project
+
+`tayda-uv` is free and open source under the [MIT licence](LICENSE). If it saved
+you a ruined enclosure, you can
+[buy me a coffee](https://buymeacoffee.com/drlholloway).
 
 ## References
 [Tayda UV Printing Service Guide](https://www.taydaelectronics.com/uv-printing-service-guide-v1)
