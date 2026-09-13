@@ -1,0 +1,11 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Help and how-tos
+    url: https://github.com/drlholloway/tayda-uv-artwork-processor/wiki
+    about: Installation, first steps, preparing artwork, enclosure sizes, white and gloss, the command line, troubleshooting.
+  - name: Tayda's file preparation guide
+    url: https://www.taydaelectronics.com/uv-printing-service-guide-v1
+    about: The spec this tool follows. Check it before reporting a size as wrong; it is versioned and changes.
+  - name: Report a security problem
+    url: https://github.com/drlholloway/tayda-uv-artwork-processor/security/advisories/new
+    about: Please use private reporting rather than a public issue.

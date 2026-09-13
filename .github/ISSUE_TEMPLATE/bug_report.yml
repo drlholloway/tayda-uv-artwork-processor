@@ -1,0 +1,60 @@
+name: Bug report
+description: The tool misbehaves, crashes, or refuses artwork it should accept.
+labels: [bug]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The commit you built from (`git rev-parse --short HEAD`), or the release you downloaded.
+      placeholder: "0fa1b06"
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - macOS
+        - Linux
+        - Windows
+    validations:
+      required: true
+  - type: input
+    id: go
+    attributes:
+      label: Go version and OS
+      placeholder: "go1.26.1 on macOS 26, Apple Silicon"
+  - type: input
+    id: target
+    attributes:
+      label: Enclosure and side
+      placeholder: "1590B side A"
+  - type: dropdown
+    id: frontend
+    attributes:
+      label: How were you running it?
+      options:
+        - Command line (convert, validate, inspect, ...)
+        - Interactive interface (no arguments)
+        - Through the agent skill
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you ran, what you expected, what you saw instead. Paste the tool's full output.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. tayda-uv validate -e 1590B -s A face.png
+        2. ...
+  - type: textarea
+    id: artwork
+    attributes:
+      label: The artwork
+      description: Format and pixel size (`file face.png`), and whether it has transparency. Attach it if you can; a cropped or redacted copy that still reproduces the problem is fine.

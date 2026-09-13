@@ -1,0 +1,40 @@
+name: Feature request
+description: Suggest an enclosure, a workflow improvement, or something the tool should check.
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Have a look at the "Not built yet" section of [CLAUDE.md](https://github.com/drlholloway/tayda-uv-artwork-processor/blob/main/CLAUDE.md) first. It lists what is known to be missing, and a few things that are missing on purpose (vector passthrough, scripting Tayda's Analyzer) with the reasons.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: The goal, not the button. "Print all six sides of a 1590BB from one folder" is more useful than "add a batch flag".
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would help
+      description: How you imagine it working. Command lines, mock output and examples from other tools welcome.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - A new enclosure or size
+        - Artwork formats and validation
+        - White, gloss and print layers
+        - Command line and scripting
+        - Interactive interface
+        - inspect and checking output
+        - Agent skill
+        - Other
+  - type: input
+    id: context
+    attributes:
+      label: Your setup
+      placeholder: "1590B, black powder coat, artwork from Affinity Designer"

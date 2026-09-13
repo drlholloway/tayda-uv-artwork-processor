@@ -1,0 +1,53 @@
+name: Wrong size or rejected by Tayda
+description: An artboard disagrees with Tayda's guide, or Tayda's Analyzer rejected a file the tool passed.
+labels: [spec]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Tayda prints files exactly as submitted, so this is the most important kind of report the project gets. Their [guide](https://www.taydaelectronics.com/uv-printing-service-guide-v1) is versioned and the URL does not change when it does; please check the live page in a browser before filing.
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The commit you built from (`git rev-parse --short HEAD`), or the release you downloaded.
+    validations:
+      required: true
+  - type: input
+    id: target
+    attributes:
+      label: Enclosure and side
+      placeholder: "1590BB2 side C"
+    validations:
+      required: true
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What is wrong
+      options:
+        - The artboard size differs from the guide
+        - Tayda's PDF Analyzer rejected a file that `inspect` passed
+        - The enclosure printed wrong from a file the tool wrote
+        - A gloss or white layer came out differently from what was asked for
+    validations:
+      required: true
+  - type: textarea
+    id: tool
+    attributes:
+      label: What the tool said
+      description: The `sides` table row, or the full `convert` and `inspect` output for the file.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What it should be
+      description: The size in the guide with the guide's version and date, or the Analyzer's message word for word, or a photo of the enclosure.
+    validations:
+      required: true
+  - type: textarea
+    id: file
+    attributes:
+      label: The file
+      description: Attach the PDF if you can share it. Without it, the `inspect` output above is the next best thing.
