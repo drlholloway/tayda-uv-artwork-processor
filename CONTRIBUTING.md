@@ -83,7 +83,8 @@ matching the tool's output. `gofmt` decides the rest.
 
 ## Licensing of contributions
 
-`tayda-uv` is licensed under the [MIT License](LICENSE). By submitting a
+`tayda-uv` is licensed under the [GNU Affero General Public License, version 3
+only](LICENSE). By submitting a
 contribution you agree that it is licensed under the same terms. Please do not
 submit code copied from projects under incompatible licenses.
 

@@ -5,6 +5,11 @@ the GitHub Release notes.
 
 ## Unreleased
 
+### Changed
+- **License:** now free software under the GNU Affero General Public
+  License, version 3 only (AGPL-3.0-only). Earlier releases remain under
+  the MIT License.
+
 ## 1.0.0 — 2026-09-13
 
 First release. A test enclosure has been printed from its output and came
