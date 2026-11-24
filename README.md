@@ -241,7 +241,9 @@ ln -s "$PWD/.claude/skills/tayda-uv" ~/.claude/skills/tayda-uv
 
 ## Support the project
 
-`tayda-uv` is free and open source under the [MIT licence](LICENSE). If it saved
+`tayda-uv` is free and open source under the [GNU Affero General Public License,
+version 3 only](LICENSE) (AGPL-3.0-only); the copyright notice is in [NOTICE](NOTICE).
+Version 1.0.0 was released under the MIT licence. If it saved
 you a ruined enclosure, you can
 [buy me a coffee](https://buymeacoffee.com/drlholloway).
 
